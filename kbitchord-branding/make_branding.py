@@ -1,0 +1,191 @@
+"""Generate every KBitChord branding resource from the K artwork.
+
+Writes flavor resource overlays, so nothing under upstream's `src/main` changes:
+
+    app/src/prod/res  app/src/dev/res     phone app
+    tv/src/prod/res   tv/src/dev/res      TV app
+
+Each gets the K launcher icon (adaptive: K foreground on a navy background, the
+K's alpha as the monochrome layer) and `app_name` in every locale upstream
+defines it in. The TV overlays also get the K banner.
+
+Usage (repo root; Python 3 with Pillow, NumPy, SciPy):
+
+    python kbitchord-branding/make_branding.py kbitchord-branding/source/k-mark.png <preview-dir>
+"""
+import glob
+import os
+import re
+import sys
+
+import numpy as np
+from PIL import Image
+from scipy import ndimage
+
+mark_src, preview_dir = sys.argv[1:3]
+
+TARGETS = {
+    "app/src/prod/res": {"name": "KBitChord", "tv": False},
+    "app/src/dev/res": {"name": "KBitChord Dev", "tv": False},
+    "tv/src/prod/res": {"name": "KBitChord TV", "tv": True},
+    "tv/src/dev/res": {"name": "KBitChord TV Dev", "tv": True},
+}
+# Every values folder whose strings define app_name. The TV app reuses the
+# phone app's resources, so the phone's locales are the TV's too.
+UPSTREAM_VALUES = "app/src/main/res"
+# Upstream ships its TV banner under these qualifiers, all at 1024x576. An
+# overlay only replaces a resource with the same qualifiers, so all are covered.
+TV_BANNER_DIRS = ("drawable", "drawable-mdpi", "drawable-hdpi", "drawable-xhdpi")
+TV_BANNER_SIZE = (1024, 576)
+FOREGROUND_PX = 432  # 108dp at xxxhdpi
+# K height as a share of the 108dp adaptive canvas: about 45dp, so the K's
+# whole bounding box stays inside the 66dp safe circle.
+FOREGROUND_K_HEIGHT = 0.42
+BANNER_K_HEIGHT = 0.40
+
+
+def rgb_to_hsv(img):
+    r, g, b = img[..., 0], img[..., 1], img[..., 2]
+    mx, mn = img.max(-1), img.min(-1)
+    d = mx - mn
+    h = np.zeros_like(mx)
+    nz = d > 1e-6
+    rm = nz & (mx == r)
+    gm = nz & (mx == g) & ~rm
+    bm = nz & ~rm & ~gm
+    h[rm] = ((g - b)[rm] / d[rm]) % 6
+    h[gm] = (b - r)[gm] / d[gm] + 2
+    h[bm] = (r - g)[bm] / d[bm] + 4
+    s = np.where(mx > 1e-6, d / np.maximum(mx, 1e-6), 0)
+    return h * 60.0, s, mx
+
+
+def matte(img):
+    """Pull the K off its dark background: RGBA with straight (unpremultiplied) colour."""
+    _, _, v = rgb_to_hsv(img)
+    fg_guess = ndimage.binary_dilation(v > 0.25, iterations=12)
+    bgw = (~fg_guess).astype(np.float64)
+    bg = np.stack([ndimage.gaussian_filter(img[..., c] * bgw, 40) for c in range(3)], -1)
+    bg /= np.maximum(ndimage.gaussian_filter(bgw, 40), 1e-6)[..., None]
+
+    diff = np.abs(img - bg).max(-1)
+    core = diff > 0.35
+    dist, (iy, ix) = ndimage.distance_transform_edt(~core, return_indices=True)
+    fg = img[iy, ix]
+    num = ((img - bg) * (fg - bg)).sum(-1)
+    den = np.maximum(((fg - bg) ** 2).sum(-1), 1e-6)
+    alpha = np.clip(num / den, 0, 1)
+    alpha[core] = 1
+    alpha[dist > 4] = 0
+    colour = np.where(core[..., None], img, fg)
+    return colour, alpha
+
+
+def to_image(rgb, alpha):
+    rgb8 = (np.clip(rgb, 0, 1) * 255 + 0.5).astype(np.uint8)
+    a8 = (np.clip(alpha, 0, 1) * 255 + 0.5).astype(np.uint8)
+    return Image.fromarray(np.dstack([rgb8, a8]), "RGBA")
+
+
+def write(res_dir, rel, data):
+    path = os.path.join(res_dir, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if isinstance(data, Image.Image):
+        data.save(path, optimize=True)
+    else:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(data)
+    print(path)
+
+
+def place(k_img, canvas_size, k_height, background):
+    """The K scaled to k_height x canvas height, centred on a canvas."""
+    w, h = canvas_size
+    kh = round(h * k_height)
+    kw = round(k_img.width * kh / k_img.height)
+    canvas = Image.new("RGBA", canvas_size, background)
+    canvas.alpha_composite(k_img.resize((kw, kh), Image.LANCZOS), ((w - kw) // 2, (h - kh) // 2))
+    return canvas
+
+
+def xml_escape(text):
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# ---- The K, transparent, cropped to its bounds ----
+mark = np.asarray(Image.open(mark_src).convert("RGB")).astype(np.float64) / 255.0
+border = np.concatenate([mark[:40].reshape(-1, 3), mark[-40:].reshape(-1, 3),
+                         mark[:, :40].reshape(-1, 3), mark[:, -40:].reshape(-1, 3)])
+navy = tuple(int(round(c * 255)) for c in np.median(border, 0))
+k_rgb, k_alpha = matte(mark)
+ys, xs = np.where(k_alpha > 0.02)
+k_img = to_image(k_rgb, k_alpha).crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
+navy_hex = "#FF%02X%02X%02X" % navy
+print("background", navy_hex, "K", k_img.size)
+
+foreground = place(k_img, (FOREGROUND_PX, FOREGROUND_PX), FOREGROUND_K_HEIGHT, (0, 0, 0, 0))
+banner = place(k_img, TV_BANNER_SIZE, BANNER_K_HEIGHT, navy + (255,)).convert("RGB")
+
+ADAPTIVE_ICON = """<?xml version="1.0" encoding="utf-8"?>
+<!-- KBitChord launcher icon. Generated by kbitchord-branding/make_branding.py. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/kbitchord_launcher_background" />
+    <foreground android:drawable="@drawable/kbitchord_launcher_foreground" />
+    <monochrome android:drawable="@drawable/kbitchord_launcher_foreground" />
+</adaptive-icon>
+"""
+COLORS = f"""<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated by kbitchord-branding/make_branding.py. -->
+<resources>
+    <color name="kbitchord_launcher_background">{navy_hex}</color>
+</resources>
+"""
+
+# ---- app_name locales ----
+locales = []
+for path in sorted(glob.glob(os.path.join(UPSTREAM_VALUES, "values*", "*.xml"))):
+    with open(path, encoding="utf-8") as f:
+        if re.search(r'<string\s+name="app_name"', f.read()):
+            folder = os.path.basename(os.path.dirname(path))
+            if folder not in locales:
+                locales.append(folder)
+print("app_name locales:", " ".join(locales))
+
+for res_dir, target in TARGETS.items():
+    write(res_dir, "mipmap-anydpi/ic_launcher.xml", ADAPTIVE_ICON)
+    write(res_dir, "mipmap-anydpi/ic_launcher_round.xml", ADAPTIVE_ICON)
+    write(res_dir, "drawable-nodpi/kbitchord_launcher_foreground.png", foreground)
+    write(res_dir, "values/kbitchord_launcher.xml", COLORS)
+    for folder in locales:
+        # translatable="false" belongs in the default folder only; lint flags it in a locale.
+        attr = ' translatable="false"' if folder == "values" else ""
+        write(res_dir, f"{folder}/strings_kbitchord.xml", (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            "<!-- Generated by kbitchord-branding/make_branding.py. -->\n"
+            "<resources>\n"
+            f'    <string name="app_name"{attr}>{xml_escape(target["name"])}</string>\n'
+            "</resources>\n"
+        ))
+    if target["tv"]:
+        for folder in TV_BANNER_DIRS:
+            write(res_dir, f"{folder}/tv_banner.png", banner)
+
+# ---- Previews: the icon through round and squircle masks, and the banner ----
+os.makedirs(preview_dir, exist_ok=True)
+sheet = Image.new("RGB", (3 * 220 + 40 + 512 + 20, 300), (230, 230, 235))
+icon = Image.new("RGBA", (FOREGROUND_PX, FOREGROUND_PX), navy + (255,))
+icon.alpha_composite(foreground)
+inner = icon.crop((FOREGROUND_PX // 6, FOREGROUND_PX // 6, FOREGROUND_PX * 5 // 6, FOREGROUND_PX * 5 // 6))
+for i, radius in enumerate((0.5, 0.3, 0.0)):
+    size = 200
+    mask = Image.new("L", (size * 4, size * 4), 0)
+    from PIL import ImageDraw
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size * 4 - 1, size * 4 - 1), radius=int(size * 4 * radius), fill=255)
+    mask = mask.resize((size, size), Image.LANCZOS)
+    sheet.paste(inner.resize((size, size), Image.LANCZOS).convert("RGB"), (20 + i * 220, 50), mask)
+mono = Image.new("RGB", (FOREGROUND_PX, FOREGROUND_PX), (60, 60, 60))
+sheet.paste(banner.resize((512, 288), Image.LANCZOS), (3 * 220 + 40, 6))
+sheet.save(os.path.join(preview_dir, "kbitchord_branding_preview.png"))
+mono.paste((235, 235, 235), (0, 0), foreground.getchannel("A"))
+mono.resize((200, 200), Image.LANCZOS).save(os.path.join(preview_dir, "kbitchord_monochrome_preview.png"))
+print("previews in", preview_dir)
