@@ -1,0 +1,275 @@
+name: Sync upstream and release
+
+on:
+  schedule:
+    - cron: "37 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      manual:
+        description: Manual build - publish the current main as the next KBitChord revision (+k.N)
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: Upstream release tag to build, e.g. v1.9 (default is the newest upstream release; ignored for manual builds)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: kbitchord-sync-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: kushagrasinghx/BitChord
+  OWN_WORKFLOW: .github/workflows/kbitchord-sync-release.yml
+
+jobs:
+  sync-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          # A PAT is needed to push upstream changes to .github/workflows.
+          token: ${{ secrets.SYNC_PAT }}
+
+      - name: Resolve release version
+        id: release
+        env:
+          MANUAL: ${{ inputs.manual }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "${MANUAL}" == "true" ]]; then
+            # Manual builds reuse the upstream version already on main and add
+            # the next KBitChord revision: v<version>+k.1, +k.2, ...
+            version=$(sed -nE 's/^extra\["bitchordVersionName"\] = "([^"+]+).*"/\1/p' build.gradle.kts | head -1)
+            if [[ -z "${version}" ]]; then
+              echo "Could not read bitchordVersionName from build.gradle.kts." >&2
+              exit 1
+            fi
+            tag="v${version}"
+            tag_re=$(printf '%s' "${tag}" | sed 's/[.]/\\./g')
+            last=$(gh release list -R "${GITHUB_REPOSITORY}" --limit 200 --json tagName --jq '.[].tagName' |
+              sed -nE "s/^${tag_re}\+k\.([0-9]+)$/\1/p" | sort -n | tail -1)
+            revision=$(( ${last:-0} + 1 ))
+            release_tag="${tag}+k.${revision}"
+            [[ "${version}" == *-* ]] && prerelease=true || prerelease=false
+            mode=manual
+            skip=false
+          else
+            if [[ -n "${INPUT_TAG}" ]]; then
+              tag="${INPUT_TAG}"
+            else
+              # Newest published release, prereleases included.
+              tag=$(gh api "repos/${UPSTREAM_REPO}/releases" --jq '[.[] | select(.draft | not)][0].tag_name')
+            fi
+            if [[ -z "${tag}" ]]; then
+              echo "No upstream release found." >&2
+              exit 1
+            fi
+            prerelease=$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${tag}" --jq '.prerelease')
+            release_tag="${tag}+k"
+            revision=0
+            mode=upstream
+            if gh release view "${release_tag}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+              echo "Release ${release_tag} already exists; nothing to do."
+              skip=true
+            else
+              skip=false
+            fi
+          fi
+          # The app's versionName has no "v" (the updater strips it from tags).
+          version_name="${release_tag#v}"
+          echo "Release: ${release_tag} (versionName ${version_name}, mode=${mode}, prerelease=${prerelease}, skip=${skip})"
+          {
+            echo "tag=${tag}"
+            echo "release_tag=${release_tag}"
+            echo "version_name=${version_name}"
+            echo "revision=${revision}"
+            echo "prerelease=${prerelease}"
+            echo "mode=${mode}"
+            echo "skip=${skip}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Merge upstream release
+        if: steps.release.outputs.skip != 'true' && steps.release.outputs.mode == 'upstream'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name "kbitchord-sync[bot]"
+          git config user.email "kbitchord-sync@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "refs/tags/${TAG}:refs/tags/${TAG}"
+
+          if ! git merge --no-edit -m "Merge upstream ${TAG}" "refs/tags/${TAG}"; then
+            git merge --abort
+            echo "::error::Merging upstream ${TAG} into main has conflicts. Resolve them locally and push main."
+            exit 1
+          fi
+          git push origin HEAD:main
+
+      - name: Disable inherited upstream workflows
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows" \
+            --jq ".workflows[] | select(.state == \"active\" and .path != \"${OWN_WORKFLOW}\") | .id" |
+            while read -r id; do
+              echo "Disabling workflow ${id}"
+              gh workflow disable "${id}" -R "${GITHUB_REPOSITORY}"
+            done
+
+      - name: Stamp KBitChord version
+        if: steps.release.outputs.skip != 'true'
+        env:
+          VERSION_NAME: ${{ steps.release.outputs.version_name }}
+        run: |
+          # Build-only change, never committed: the in-app updater compares the
+          # installed versionName with release tags, so they must match. The phone
+          # app takes it from the root build script, the TV app has its own.
+          sed -i -E "s/^(extra\[\"bitchordVersionName\"\] = )\"[^\"]+\"/\1\"${VERSION_NAME}\"/" build.gradle.kts
+          sed -i -E "s/^([[:space:]]*versionName = )\"[^\"]+\"/\1\"${VERSION_NAME}\"/" tv/build.gradle.kts
+          grep -F "extra[\"bitchordVersionName\"] = \"${VERSION_NAME}\"" build.gradle.kts
+          grep -F "versionName = \"${VERSION_NAME}\"" tv/build.gradle.kts
+
+      - name: Set up Java
+        if: steps.release.outputs.skip != 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        if: steps.release.outputs.skip != 'true'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure build properties and signing
+        if: steps.release.outputs.skip != 'true'
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.KBITCHORD_LOCAL_PROPERTIES_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KBITCHORD_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KBITCHORD_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KBITCHORD_KEYSTORE_PASSWORD }}
+        run: |
+          missing=()
+          for name in KEYSTORE_BASE64 KEY_ALIAS KEYSTORE_PASSWORD; do
+            [[ -n "${!name}" ]] || missing+=("${name}")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing required secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+          # Optional: LASTFM_API_KEY, LASTFM_SECRET, LISTEN_TOGETHER_SERVER.
+          # Without it Last.fm is off and Listen Together uses upstream's server.
+          if [[ -n "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+            sed -i -E '/^[[:space:]]*sdk\.dir[[:space:]]*=/d' local.properties
+          fi
+
+          keystore_path="${RUNNER_TEMP}/kbitchord-release.jks"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          # Java properties treat a backslash as an escape.
+          escape() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
+          {
+            echo "storeFile=${keystore_path}"
+            echo "keyAlias=$(escape "${KEY_ALIAS}")"
+            # PKCS12 keystores use the store password for the key as well.
+            echo "storePassword=$(escape "${KEYSTORE_PASSWORD}")"
+            echo "keyPassword=$(escape "${KEYSTORE_PASSWORD}")"
+          } > keystore.properties
+
+      - name: Test updater and build phone and TV release APKs
+        if: steps.release.outputs.skip != 'true'
+        # The watch app is not part of KBitChord yet, so the phone APK does not carry it.
+        run: >-
+          ./gradlew :app:testProdReleaseUnitTest --tests 'com.music.bitchord.data.KBitChordRevisionTest'
+          :app:assembleProdRelease :tv:assembleProdRelease -Pbitchord.bundleWear=false --stacktrace
+
+      - name: Collect APKs
+        if: steps.release.outputs.skip != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        run: |
+          # KBitChord-v1.9-k.1.apk, KBitChord-v1.9-k.1_arm64-v8a.apk, KBitChordTV-...
+          # The updater matches the prefix (UPDATE_APK_PREFIX) and takes the file
+          # without an "_<abi>" suffix first. "+" becomes "-": GitHub rewrites it in asset names.
+          version="${RELEASE_TAG//+/-}"
+          mkdir -p dist
+          collect() {
+            local dir="$1" module="$2" prefix="$3" apk name abi
+            for apk in "${dir}"/*.apk; do
+              [[ -e "${apk}" ]] || continue
+              name=$(basename "${apk}" .apk)
+              if [[ "${name}" == *unsigned* ]]; then
+                echo "::error::${apk} is unsigned." >&2
+                exit 1
+              fi
+              abi="${name#"${module}-prod-"}"
+              abi="${abi%-release}"
+              if [[ "${abi}" == universal ]]; then
+                cp "${apk}" "dist/${prefix}-${version}.apk"
+              else
+                cp "${apk}" "dist/${prefix}-${version}_${abi}.apk"
+              fi
+            done
+          }
+          collect app/build/outputs/apk/prod/release app KBitChord
+          collect tv/build/outputs/apk/prod/release tv KBitChordTV
+          ls -l dist
+          [[ -e "dist/KBitChord-${version}.apk" && -e "dist/KBitChordTV-${version}.apk" ]] || {
+            echo "Universal phone or TV APK missing." >&2
+            exit 1
+          }
+
+      - name: Create GitHub release
+        if: steps.release.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          REVISION: ${{ steps.release.outputs.revision }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          MODE: ${{ steps.release.outputs.mode }}
+        run: |
+          mapfile -t apks < <(find dist -maxdepth 1 -type f -name '*.apk' -print | sort)
+
+          upstream_link="[${UPSTREAM_REPO} ${TAG}](https://github.com/${UPSTREAM_REPO}/releases/tag/${TAG})"
+          if [[ "${MODE}" == "manual" ]]; then
+            title="KBitChord ${TAG} (revision ${REVISION})"
+            previous="${TAG}+k"
+            (( REVISION > 1 )) && previous="${TAG}+k.$(( REVISION - 1 ))"
+            {
+              echo "KBitChord revision ${REVISION} of ${upstream_link}."
+              if git rev-parse -q --verify "refs/tags/${previous}" >/dev/null; then
+                echo
+                echo "Changes since ${previous}:"
+                echo
+                git log --no-merges --format='- %s' "${previous}..HEAD"
+              fi
+            } > release-notes.md
+          else
+            title="KBitChord ${TAG}"
+            printf '%s\n' \
+              "KBitChord build of ${upstream_link}." \
+              "" \
+              "See the upstream release for the changelog." > release-notes.md
+          fi
+          printf '%s\n' "" \
+            "\`KBitChord-*\` is the phone app, \`KBitChordTV-*\` the Android TV app. The file without an ABI suffix installs on any device." \
+            >> release-notes.md
+
+          args=("${RELEASE_TAG}" --target "$(git rev-parse HEAD)" --title "${title}" --notes-file release-notes.md)
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            args+=(--prerelease)
+          else
+            args+=(--latest)
+          fi
+          gh release create -R "${GITHUB_REPOSITORY}" "${args[@]}" "${apks[@]}"
