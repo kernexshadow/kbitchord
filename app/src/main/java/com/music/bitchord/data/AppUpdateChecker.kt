@@ -226,13 +226,22 @@ object AppUpdateChecker {
         )
     }
 
-    /** A version split into its numeric dotted parts and whether it carries a "-suffix" (e.g. "-beta2"). */
-    private data class ParsedVersion(val parts: List<Int>, val isPreRelease: Boolean)
+    /**
+     * A version split into its numeric dotted parts and whether it carries a "-suffix" (e.g. "-beta2").
+     * KBitChord: [kRevision] comes from "+k" (0) or "+k.N" (N) build metadata; other metadata is ignored.
+     */
+    private data class ParsedVersion(val parts: List<Int>, val isPreRelease: Boolean, val kRevision: Int = 0)
+
+    private val kRevisionPattern = Regex("^k(?:\\.(\\d+))?$")
 
     private fun parseVersion(raw: String): ParsedVersion {
-        val dash = raw.indexOf('-')
-        val base = if (dash >= 0) raw.substring(0, dash) else raw
-        return ParsedVersion(base.split(".").map { it.toIntOrNull() ?: 0 }, dash >= 0)
+        val plus = raw.indexOf('+')
+        val version = if (plus >= 0) raw.substring(0, plus) else raw
+        val metadata = if (plus >= 0) raw.substring(plus + 1) else ""
+        val dash = version.indexOf('-')
+        val base = if (dash >= 0) version.substring(0, dash) else version
+        val kRevision = kRevisionPattern.matchEntire(metadata)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        return ParsedVersion(base.split(".").map { it.toIntOrNull() ?: 0 }, dash >= 0, kRevision)
     }
 
     /**
@@ -242,8 +251,11 @@ object AppUpdateChecker {
      * plain release of the same numbers, since the beta by definition predates
      * the tag it was testing toward. Without this, a beta and the release it
      * matches compare equal and testers never get nudged onto the real build.
+     *
+     * KBitChord: the "+k.N" revision is the last tie-breaker, so
+     * 1.9+k < 1.9+k.1 < 1.9.1+k. Internal for KBitChordRevisionTest.
      */
-    private fun isNewer(latest: String, current: String): Boolean {
+    internal fun isNewer(latest: String, current: String): Boolean {
         val l = parseVersion(latest)
         val c = parseVersion(current)
         for (i in 0 until maxOf(l.parts.size, c.parts.size)) {
@@ -251,6 +263,7 @@ object AppUpdateChecker {
             val b = c.parts.getOrElse(i) { 0 }
             if (a != b) return a > b
         }
-        return c.isPreRelease && !l.isPreRelease
+        if (c.isPreRelease != l.isPreRelease) return c.isPreRelease
+        return l.kRevision > c.kRevision
     }
 }
