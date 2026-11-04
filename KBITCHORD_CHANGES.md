@@ -63,9 +63,10 @@ change can be dropped from KBitChord after merging X.
 - **Why:** follow upstream releases without manual work, and publish signed APKs.
 - **What:** `.github/workflows/kbitchord-sync-release.yml`: scheduled merge of upstream release tags, manual `+k.N`
   revision builds, versionName stamping (phone and TV), disabling inherited workflows, signed phone and TV release builds
-  without the watch app, and a GitHub release. Details in `.claude/CLAUDE.md`.
+  without the watch app, a check that every APK carries the KBitChord certificate, and a GitHub release. Details in
+  `.claude/CLAUDE.md`.
 - **Files:** `.github/workflows/kbitchord-sync-release.yml`.
-- **Commits:** `cb5d86bd`.
+- **Commits:** `cb5d86bd` and "kbitchord: check the certificate of every release APK".
 - **Remove:** delete the workflow; releases then have to be built by hand.
 - **Upstream status:** KBitChord only.
 

@@ -63,7 +63,9 @@ BitChord is GPLv3, so the repository stays public: every published APK must have
 - It disables every other workflow in the repo. Inherited upstream workflows must not run here (`contributors-image.yml`
   would even commit to `main`).
 - It runs the updater unit tests, then `:app:assembleProdRelease :tv:assembleProdRelease -Pbitchord.bundleWear=false`,
-  fails if an APK is unsigned, and uploads the universal and per-ABI APKs (arm64-v8a, armeabi-v7a, x86_64) of both apps.
+  and uploads the universal and per-ABI APKs (arm64-v8a, armeabi-v7a, x86_64) of both apps. Before the release it fails
+  if an APK is unsigned, if the keystore secret is not the KBitChord key, or if any APK carries another certificate
+  (`EXPECTED_CERT_SHA256` in the workflow; the TV build would otherwise fall back to the debug key without a word).
 - Every `gh` call passes `-R`/an explicit repo: with an `upstream` remote present, `gh` defaults to kushagrasinghx.
 - To rebuild a version that already has a release, delete that release and its tag first, then run the workflow again.
 

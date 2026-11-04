@@ -26,6 +26,9 @@ concurrency:
 env:
   UPSTREAM_REPO: kushagrasinghx/BitChord
   OWN_WORKFLOW: .github/workflows/kbitchord-sync-release.yml
+  # SHA-256 of the release certificate (the knuvio key). Installed KBitChord apps
+  # only accept updates signed with it.
+  EXPECTED_CERT_SHA256: 917157b4bab91ba0537262072ca06b9e241011705d2fff81fd4b91ac3c6bd4a5
 
 jobs:
   sync-release:
@@ -229,6 +232,33 @@ jobs:
             echo "Universal phone or TV APK missing." >&2
             exit 1
           }
+
+      - name: Verify APK signatures
+        if: steps.release.outputs.skip != 'true'
+        env:
+          KEY_ALIAS: ${{ secrets.KBITCHORD_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KBITCHORD_KEYSTORE_PASSWORD }}
+        run: |
+          # Every APK must carry the release key. The TV build silently falls back
+          # to the debug key when its release signing config is missing, and an
+          # APK signed with another key cannot update installed KBitChord apps.
+          key_sha=$(keytool -list -v -keystore "${RUNNER_TEMP}/kbitchord-release.jks" \
+              -storepass:env KEYSTORE_PASSWORD -alias "${KEY_ALIAS}" |
+            sed -nE 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+          if [[ "${key_sha}" != "${EXPECTED_CERT_SHA256}" ]]; then
+            echo "::error::The keystore secret holds certificate ${key_sha:-?}, not the KBitChord key ${EXPECTED_CERT_SHA256}."
+            exit 1
+          fi
+          apksigner="$(ls -d "${ANDROID_HOME}"/build-tools/* | sort -V | tail -1)/apksigner"
+          for apk in dist/*.apk; do
+            cert=$("${apksigner}" verify --print-certs "${apk}" |
+              sed -nE 's/^Signer #[0-9]+ certificate SHA-256 digest: //p')
+            if [[ "${cert}" != "${EXPECTED_CERT_SHA256}" ]]; then
+              echo "::error::${apk} is signed with ${cert:-no valid signature}, not the KBitChord key."
+              exit 1
+            fi
+          done
+          echo "All APKs are signed with ${EXPECTED_CERT_SHA256}."
 
       - name: Create GitHub release
         if: steps.release.outputs.skip != 'true'
