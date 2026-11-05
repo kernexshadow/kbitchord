@@ -13,6 +13,7 @@ are the ones to watch:
 | `app/build.gradle.kts`, `tv/build.gradle.kts` | [K-01](#k-01-branding-launcher-icon-tv-banner-app-name), [K-02](#k-02-application-ids-and-updater-source) |
 | `app/src/main/java/com/music/bitchord/data/AppUpdateChecker.kt` | [K-02](#k-02-application-ids-and-updater-source), [K-05](#k-05-kbitchord-revisions-in-the-updater) |
 | Playback and settings files and strings listed in K-06 | [K-06](#k-06-find-next-song-early-upstream-pr-1439) |
+| Matching, playback and addon files listed in K-07, K-08, K-09 | [K-07](#k-07-shared-release-before-a-runtime-vouches-for-another-artist-upstream-pr-1456), [K-08](#k-08-keep-a-mid-song-lossless-upgrade-and-replay-it-from-disk-upstream-pr-1475), [K-09](#k-09-ask-an-addon-again-when-it-says-not-yet-upstream-pr-1523) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -108,3 +109,51 @@ change can be dropped from KBitChord after merging X.
 - **Watch:** if the PR gets more commits, cherry-pick them too. When an upstream release contains the PR, merging it may
   conflict in the files above: take upstream's version and delete this entry. If the PR is closed without merging, revert.
   Check with `:app:testDevDebugUnitTest --tests 'com.music.bitchord.StreamChoiceTest'`.
+
+## K-07 Shared release before a runtime vouches for another artist (upstream PR #1456)
+
+- **Why:** the track matcher accepted a candidate by a different artist when the two runtimes agreed within 2 s, so a
+  common title could swap in the wrong song (Mat Kearney's "As Long As I Live" for Catherine Russell's).
+- **What:** [kushagrasinghx/BitChord#1456](https://github.com/kushagrasinghx/BitChord/pull/1456) by kernexshadow (branch
+  `fix/different-artist-match` on `kernexshadow/BitChord`, head `3d6ba98f`, based on upstream `v1.9.1`), cherry-picked
+  unchanged. The runtime exception for another artist now also needs the release to agree: both albums named and equal,
+  or one side's title naming the other's album in full. Otherwise the track stays on YouTube.
+- **Files:** `data/sources/TrackMatcher.kt`, `SourcesTest.kt`.
+- **Commits:** cherry-pick of `3d6ba98f` (its message ends with "cherry picked from commit …").
+- **Remove:** revert the cherry-pick.
+- **Upstream status:** upstream PR #1456 (open).
+- **Watch:** as K-06. Check with `:app:testDevDebugUnitTest --tests 'com.music.bitchord.SourcesTest'`.
+
+## K-08 Keep a mid-song lossless upgrade and replay it from disk (upstream PR #1475)
+
+- **Why:** a track that started on YouTube and swapped up to FLAC mid-song paid for the upgrade on every play: the
+  upgraded copy was never complete and was purged once the queue moved on.
+- **What:** [kushagrasinghx/BitChord#1475](https://github.com/kushagrasinghx/BitChord/pull/1475) by kernexshadow (branch
+  `feat/keep-lossless-upgrade` on `kernexshadow/BitChord`, head `2d5fc31d`, based on upstream `v1.9.1`), cherry-picked
+  unchanged. After the swap the missing parts of the upgraded rendition are fetched from its stream URL; once whole it is
+  kept, and the next play of the track starts from it in FLAC with no second look and no swap.
+- **Files:** `MainActivity.kt`, `playback/{AudioCache,PlaybackService,QualityUpgrade}.kt` (`AudioCache` and
+  `PlaybackService` also edited by K-06, `QualityUpgrade` by K-09), new `KeptUpgradeTest.kt`.
+- **Commits:** cherry-pick of `2d5fc31d`.
+- **Remove:** revert the cherry-pick (after K-09 if both go: they share `QualityUpgrade.kt`).
+- **Upstream status:** upstream PR #1475 (open).
+- **Watch:** as K-06. Check with `:app:testDevDebugUnitTest --tests 'com.music.bitchord.KeptUpgradeTest'`.
+
+## K-09 Ask an addon again when it says "not yet" (upstream PR #1523)
+
+- **Why:** an addon whose debrid service is still downloading can answer "not yet" with `retryAfter` instead of holding
+  the request open. Playback then starts on YouTube at once and switches to the lossless copy when the addon has it.
+- **What:** [kushagrasinghx/BitChord#1523](https://github.com/kushagrasinghx/BitChord/pull/1523) by kernexshadow (branch
+  `feat/upgrade-when-addon-ready` on `kernexshadow/BitChord`, head `df256c4a`, based on upstream `v1.9.1`), cherry-picked.
+  Same added and removed lines as the PR; two conflicts were resolved because `v1.9` has no addon quality picking (added
+  in `v1.9.1`): `AddonClient.kt` keeps `v1.9`'s log line without the quality, and `AddonSourceTest.kt` does not import
+  `AddonQualityOption`.
+- **Files:** `data/sources/{AddonSource,RetryHints}.kt`, `data/sources/addon/{AddonClient,AddonModels}.kt`,
+  `data/sources/module/SharedCalls.kt`, `playback/QualityUpgrade.kt` (also edited by K-08), tests `AddonSourceTest.kt`,
+  `QualityUpgradeRetryTest.kt`, `SharedCallsTest.kt`.
+- **Commits:** cherry-pick of `df256c4a`, with the conflict resolution above.
+- **Remove:** revert the cherry-pick.
+- **Upstream status:** upstream PR #1523 (open).
+- **Watch:** as K-06. When KBitChord merges `v1.9.1` or later, the `AddonClient.kt` and `AddonSourceTest.kt` lines will
+  conflict again: take upstream's quality-aware version plus the PR's `keep` predicate. Check with
+  `:app:testDevDebugUnitTest --tests 'com.music.bitchord.AddonSourceTest' --tests 'com.music.bitchord.QualityUpgradeRetryTest' --tests 'com.music.bitchord.SharedCallsTest'`.
