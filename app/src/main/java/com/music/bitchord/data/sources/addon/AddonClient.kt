@@ -166,6 +166,9 @@ class AddonClient(rawBaseUrl: String) {
         return streams.get(
             key = keyOf(trackId, params.toString()),
             describe = { "▶ addon stream(${redact(baseUrl)}) id=$trackId tier=$tier" },
+            // A "not yet" is only true until the addon's download finishes;
+            // the next caller asks again rather than reusing it.
+            keep = { it.retryAfterSec == null },
         ) {
             fetch<AddonStream>(endpoint(listOf("stream", trackId), params))
         }
