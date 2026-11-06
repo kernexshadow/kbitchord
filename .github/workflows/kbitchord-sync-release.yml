@@ -113,12 +113,19 @@ jobs:
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           git fetch --no-tags upstream "refs/tags/${TAG}:refs/tags/${TAG}"
 
+          before=$(git rev-parse HEAD)
           if ! git merge --no-edit -m "Merge upstream ${TAG}" "refs/tags/${TAG}"; then
             git merge --abort
             echo "::error::Merging upstream ${TAG} into main has conflicts. Resolve them locally and push main."
             exit 1
           fi
-          git push origin HEAD:main
+          # Nothing to push when main already contains the tag (merged by hand).
+          if [[ "$(git rev-parse HEAD)" != "${before}" ]]; then
+            if ! git push origin HEAD:main; then
+              echo "::error::Pushing the merge of ${TAG} failed. SYNC_PAT needs Contents and Workflows read and write on this repository."
+              exit 1
+            fi
+          fi
 
       - name: Disable inherited upstream workflows
         if: steps.release.outputs.skip != 'true'
