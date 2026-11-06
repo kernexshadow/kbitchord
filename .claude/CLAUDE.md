@@ -60,6 +60,10 @@ BitChord is GPLv3, so the repository stays public: every published APK must have
   the next `+k.N` for the upstream version in `build.gradle.kts`, and the release notes list commits since the previous
   KBitChord release. `-f tag=<upstream tag>` (without `manual`) builds a specific upstream release.
 - Merge conflicts: the job fails with an error annotation and GitHub emails the owner. Resolve locally (see below).
+  After a merge resolved by hand, `main` already contains the tag and the run pushes nothing.
+- Every run, scheduled ones included, first checks with `git push --dry-run` that `SYNC_PAT` can still push, so an
+  expired or read-only token fails within 6 hours instead of at the next upstream release. Fix: regenerate the
+  `kbitchord-sync` token and `Get-Clipboard | gh secret set SYNC_PAT -R kernexshadow/kbitchord` (PowerShell).
 - It disables every other workflow in the repo. Inherited upstream workflows must not run here (`contributors-image.yml`
   would even commit to `main`).
 - It runs the updater unit tests, then `:app:assembleProdRelease :tv:assembleProdRelease -Pbitchord.bundleWear=false`,

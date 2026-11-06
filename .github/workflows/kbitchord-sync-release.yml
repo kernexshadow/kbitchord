@@ -45,6 +45,16 @@ jobs:
           # A PAT is needed to push upstream changes to .github/workflows.
           token: ${{ secrets.SYNC_PAT }}
 
+      - name: Check that SYNC_PAT can push
+        run: |
+          # Every run, so an expired or read-only token fails a scheduled run (and
+          # GitHub emails the owner) before an upstream release needs it. A dry
+          # run writes nothing, but GitHub still checks write access.
+          if ! git push --dry-run origin HEAD:main; then
+            echo "::error::SYNC_PAT cannot push to main. It needs Contents and Workflows read and write on this repository, and must not be expired."
+            exit 1
+          fi
+
       - name: Resolve release version
         id: release
         env:
