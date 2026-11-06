@@ -103,8 +103,10 @@ change can be dropped from KBitChord after merging X.
   usual 25 s window.
 - **Files:** `data/settings/AppSettings.kt`, `playback/{AudioCache,DirectSourceGate,PlaybackService,StreamChoice}.kt`,
   `ui/screens/SettingsSheet.kt`, `res/values*/strings.xml` (two strings in every locale), `StreamChoiceTest.kt`.
-- **Commits:** `0244b308`, cherry-pick of `599cef84` (its message ends with "cherry picked from commit …").
-- **Remove:** revert the cherry-pick.
+- **Commits:** `0244b308`, cherry-pick of `599cef84` (its message ends with "cherry picked from commit …"), and the
+  conflict resolution in "Merge upstream v1.9.1": v1.9.1 passes YouTube's length to the addon search
+  (`directStream(target, lengthOf = …)`), which now sits in the PR's `lookupFor`, next to its `lookAhead`.
+- **Remove:** revert the cherry-pick, then put v1.9.1's `lengthOf` back into `DirectSourceGate.lookup`.
 - **Upstream status:** upstream PR #1439 (open).
 - **Watch:** if the PR gets more commits, cherry-pick them too. When an upstream release contains the PR, merging it may
   conflict in the files above: take upstream's version and delete this entry. If the PR is closed without merging, revert.
@@ -145,15 +147,14 @@ change can be dropped from KBitChord after merging X.
   the request open. Playback then starts on YouTube at once and switches to the lossless copy when the addon has it.
 - **What:** [kushagrasinghx/BitChord#1523](https://github.com/kushagrasinghx/BitChord/pull/1523) by kernexshadow (branch
   `feat/upgrade-when-addon-ready` on `kernexshadow/BitChord`, head `df256c4a`, based on upstream `v1.9.1`), cherry-picked.
-  Same added and removed lines as the PR; two conflicts were resolved because `v1.9` has no addon quality picking (added
-  in `v1.9.1`): `AddonClient.kt` keeps `v1.9`'s log line without the quality, and `AddonSourceTest.kt` does not import
-  `AddonQualityOption`.
+  Same added and removed lines as the PR. Cherry-picked onto `v1.9`, which has no addon quality picking, so it needed two
+  conflict resolutions; the merge of `v1.9.1` brought those lines back to the PR's own version.
 - **Files:** `data/sources/{AddonSource,RetryHints}.kt`, `data/sources/addon/{AddonClient,AddonModels}.kt`,
   `data/sources/module/SharedCalls.kt`, `playback/QualityUpgrade.kt` (also edited by K-08), tests `AddonSourceTest.kt`,
   `QualityUpgradeRetryTest.kt`, `SharedCallsTest.kt`.
-- **Commits:** cherry-pick of `df256c4a`, with the conflict resolution above.
+- **Commits:** cherry-pick of `df256c4a`, and the conflict resolution in "Merge upstream v1.9.1" (`AddonClient.kt`:
+  v1.9.1's log line with the quality plus the PR's `keep`; `AddonSourceTest.kt`: v1.9.1's imports plus `AddonStream`).
 - **Remove:** revert the cherry-pick.
 - **Upstream status:** upstream PR #1523 (open).
-- **Watch:** as K-06. When KBitChord merges `v1.9.1` or later, the `AddonClient.kt` and `AddonSourceTest.kt` lines will
-  conflict again: take upstream's quality-aware version plus the PR's `keep` predicate. Check with
+- **Watch:** as K-06. Check with
   `:app:testDevDebugUnitTest --tests 'com.music.bitchord.AddonSourceTest' --tests 'com.music.bitchord.QualityUpgradeRetryTest' --tests 'com.music.bitchord.SharedCallsTest'`.
