@@ -97,16 +97,17 @@ change can be dropped from KBitChord after merging X.
 - **Why:** under Direct Source Stream, skipping to the next track waits for the addon lookup. Looking the next track up
   early makes skips fast.
 - **What:** [kushagrasinghx/BitChord#1439](https://github.com/kushagrasinghx/BitChord/pull/1439) by kernexshadow (branch
-  `feat/direct-source-early-lookup` on `kernexshadow/BitChord`, head `599cef84`, based on upstream `v1.9.1`), cherry-picked.
-  A "Find next song early" setting under Direct Source Stream: once the playing track has run 10 s without a seek or skip
+  `feat/direct-source-early-lookup` on `kernexshadow/BitChord`, head `0d6007da`, based on upstream `v1.9.1`), cherry-picked.
+  A "Find next song early" setting under Direct Source Stream: once the playing track has run 3 s without a seek or skip
   and is within 10 min of its end, the next track's addon answer is looked up and pinned; its bytes still wait for the
-  usual 25 s window.
+  usual 25 s window. The PR first waited 10 s (`EARLY_LOOKUP_AFTER_MS` in `DirectSourceGate`).
 - **Files:** `data/settings/AppSettings.kt`, `playback/{AudioCache,DirectSourceGate,PlaybackService,StreamChoice}.kt`,
   `ui/screens/SettingsSheet.kt`, `res/values*/strings.xml` (two strings in every locale), `StreamChoiceTest.kt`.
 - **Commits:** `0244b308`, cherry-pick of `599cef84` (its message ends with "cherry picked from commit …"), and the
   conflict resolution in "Merge upstream v1.9.1": v1.9.1 passes YouTube's length to the addon search
-  (`directStream(target, lengthOf = …)`), which now sits in the PR's `lookupFor`, next to its `lookAhead`.
-- **Remove:** revert the cherry-pick, then put v1.9.1's `lengthOf` back into `DirectSourceGate.lookup`.
+  (`directStream(target, lengthOf = …)`), which now sits in the PR's `lookupFor`, next to its `lookAhead`. Then
+  `3df40382`, cherry-pick of `0d6007da`: the 3 s wait.
+- **Remove:** revert both cherry-picks, then put v1.9.1's `lengthOf` back into `DirectSourceGate.lookup`.
 - **Upstream status:** upstream PR #1439 (open).
 - **Watch:** if the PR gets more commits, cherry-pick them too. When an upstream release contains the PR, merging it may
   conflict in the files above: take upstream's version and delete this entry. If the PR is closed without merging, revert.
