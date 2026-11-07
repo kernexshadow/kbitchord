@@ -15,6 +15,7 @@ are the ones to watch:
 | Playback and settings files and strings listed in K-06 | [K-06](#k-06-find-next-song-early-upstream-pr-1439) |
 | Matching, playback and addon files listed in K-07, K-08, K-09 | [K-07](#k-07-shared-release-before-a-runtime-vouches-for-another-artist-upstream-pr-1456), [K-08](#k-08-keep-a-mid-song-lossless-upgrade-and-replay-it-from-disk-upstream-pr-1475), [K-09](#k-09-ask-an-addon-again-when-it-says-not-yet-upstream-pr-1523) |
 | `BitChordApplication.kt`, `ui/screens/SettingsSheet.kt`, `playback/PlaybackService.kt`, `playback/DirectSourceGate.kt`, `sharedUi/…/ui/player/PlayerControls.kt` | [K-10](#k-10-start-on-youtube-if-the-addon-is-slow) |
+| `data/sources/addon/AddonClient.kt`, `data/sources/AddonSource.kt`, `BitChordApplication.kt` | [K-11](#k-11-addon-manifest-off-the-critical-path) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -196,3 +197,24 @@ change can be dropped from KBitChord after merging X.
 - **Upstream status:** KBitChord only for now; may become an upstream PR after #1439.
 - **Watch:** upstream changes to `resolveDirect`, `lookForBetterCopy`, `swapIn` or the quality badge. Check with
   `:app:testDevDebugUnitTest --tests 'com.music.bitchord.KBitChord*'`.
+
+## K-11 Addon manifest off the critical path
+
+- **Why:** every addon search and stream request reads the addon's manifest first (its settings and whether it asks
+  for `bitchordAuth`). The client keeps a manifest for 10 minutes and then fetches it again in front of the next
+  request, so the first track after the app starts, and one track every ten minutes after that, waited for a manifest
+  round trip: 0.66 s measured against Nebula, which on its own pushed a 3.2 s lookup past K-10's 3 s wait.
+- **What:**
+  - `AddonClient.manifestForRequest()`: the last manifest read answers at once; an expired one is refreshed in the
+    background for the next request. Used by `settingsFor` and `AddonSource.refreshPolicy` (the request paths). The
+    Sources screen and the add-addon test still read a fresh one through `manifest()`.
+  - `KBitChordWarmup.warmAddonManifests()`: reads every enabled addon's manifest when the app starts.
+  - An addon that turns `bitchordAuth` on is still answered: its `401` asks for credentials, which the client sends.
+- **Files:** new `data/sources/KBitChordWarmup.kt`. Upstream files edited, each marked `KBitChord (K-11)`:
+  `data/sources/addon/AddonClient.kt` (`lastManifest`, `manifestForRequest`, two lines in `manifest`, `settingsFor`),
+  `data/sources/AddonSource.kt` (`refreshPolicy`), `BitChordApplication.kt` (one line after startup).
+- **Tested:** `AddonSourceTest`, `AddonAuthTest`, `SourcesTest` pass. On the phone emulator with Nebula: the manifest was
+  read at startup, and the first tracks played after it read no manifest before their search.
+- **Remove:** revert the commit.
+- **Upstream status:** KBitChord only for now; a good upstream PR on its own.
+- **Watch:** upstream changes to `AddonClient.manifest`, `settingsFor` or `AddonSource.admitted`/`refreshPolicy`.

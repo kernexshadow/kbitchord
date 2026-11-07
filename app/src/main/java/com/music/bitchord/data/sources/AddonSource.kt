@@ -125,7 +125,7 @@ class AddonSource(
      * when nothing could be read and the stored answer has to stand.
      */
     suspend fun refreshPolicy(): Boolean? =
-        client.manifest().fold(
+        client.manifestForRequest().fold( // KBitChord (K-11): was manifest()
             onSuccess = { manifest ->
                 recordPolicy(manifest)
                 manifest.requiresBitChordAuth

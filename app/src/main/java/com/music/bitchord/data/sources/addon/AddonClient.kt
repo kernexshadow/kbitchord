@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -106,6 +107,9 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
                 throw AddonException("This addon declares $declared — BitChord needs search")
             }
             if (manifest.requiresBitChordAuth) authRequired = true
+            // KBitChord (K-11).
+            lastManifest = manifest
+            lastManifestAtMs = System.currentTimeMillis()
             manifest
         }.recoverCatching { failure ->
             // A manifest 404 is not "no such track", it is "no addon here" —
@@ -113,6 +117,34 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
             if (failure is AddonNotFound) throw AddonException("No manifest at that URL")
             throw failure
         }
+    }
+
+    /** KBitChord (K-11): the last manifest read, and when, for [manifestForRequest]. */
+    @Volatile
+    private var lastManifest: AddonManifest? = null
+
+    @Volatile
+    private var lastManifestAtMs = 0L
+
+    /**
+     * KBitChord (K-11): the manifest a search or stream request reads before it
+     * goes out — without waiting on the network once one has been read.
+     *
+     * [manifest] holds its answer for [MANIFEST_TTL_MS] and then fetches it again
+     * the next time it is asked, which put a manifest round trip (0.66 s measured
+     * against Nebula) in front of the first track after the app started and of
+     * one track every ten minutes after that. Here the last manifest answers at
+     * once, and an expired one is refreshed beside the request for the next.
+     * Nothing a request reads from the manifest changes from one minute to the
+     * next, and an addon that starts asking for [AddonAuth] says so in a `401`,
+     * which [body] answers.
+     */
+    suspend fun manifestForRequest(): Result<AddonManifest> {
+        val known = lastManifest ?: return manifest()
+        if (System.currentTimeMillis() - lastManifestAtMs >= MANIFEST_TTL_MS) {
+            calls.launch { manifest() }
+        }
+        return Result.success(known)
     }
 
     /**
@@ -231,7 +263,7 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
      * quality. See [atmosHint].
      */
     private suspend fun settingsFor(tier: String, stereoOnly: Boolean = false): Map<String, String> {
-        val manifest = manifest().getOrNull()
+        val manifest = manifestForRequest().getOrNull() // KBitChord (K-11): was manifest()
         val declared = manifest?.settings.orEmpty()
         val params = LinkedHashMap<String, String>()
         declared.forEach { setting ->
