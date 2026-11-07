@@ -5,4 +5,11 @@
     <string name="kbitchord_direct_source_no_wait_subtitle">If the addon hasn\'t answered when a song has to start, it plays from YouTube. When a better copy is found, the player shows a button to switch.</string>
     <string name="kbitchord_addon_head_start">Wait for the addon</string>
     <string name="kbitchord_addon_head_start_subtitle">How long a song you tap or skip to waits for the addon before playing from YouTube. 0 s starts on whichever answers first.</string>
+    <!-- K-14 -->
+    <string name="kbitchord_cache_keep_playlists">Keep playlist songs longer</string>
+    <string name="kbitchord_cache_keep_playlists_subtitle">When the cache is full, songs that aren\'t in your playlists (local or imported from Spotify) are cleared first.</string>
+    <string name="kbitchord_clear_cache_outside_playlists">Clear cache outside playlists</string>
+    <string name="kbitchord_clear_cache_outside_playlists_subtitle">Frees space used by songs that aren\'t in your local or Spotify playlists</string>
+    <string name="kbitchord_clear_cache_outside_playlists_warning">Songs that aren\'t in your local or Spotify playlists will be removed from the song cache. They\'ll download again the next time you play them.</string>
+    <string name="kbitchord_cache_outside_playlists_cleared">Freed %1$s</string>
 </resources>

@@ -5,4 +5,11 @@
     <string name="kbitchord_direct_source_no_wait_subtitle">Se o addon não tiver respondido quando uma música tem de começar, ela toca do YouTube. Quando for encontrada uma cópia melhor, o player mostra um botão para mudar.</string>
     <string name="kbitchord_addon_head_start">Esperar pelo addon</string>
     <string name="kbitchord_addon_head_start_subtitle">Quanto tempo uma música em que tocas ou para a qual saltas espera pelo addon antes de tocar do YouTube. Com 0 s começa no que responder primeiro.</string>
+    <!-- K-14 -->
+    <string name="kbitchord_cache_keep_playlists">Manter mais tempo as músicas das playlists</string>
+    <string name="kbitchord_cache_keep_playlists_subtitle">Quando a cache enche, apaga primeiro as músicas que não estão nas tuas playlists (locais ou importadas do Spotify).</string>
+    <string name="kbitchord_clear_cache_outside_playlists">Limpar cache fora das playlists</string>
+    <string name="kbitchord_clear_cache_outside_playlists_subtitle">Liberta o espaço das músicas que não estão nas tuas playlists locais ou do Spotify</string>
+    <string name="kbitchord_clear_cache_outside_playlists_warning">As músicas que não estão nas tuas playlists locais ou do Spotify vão ser apagadas da cache. Voltam a ser descarregadas da próxima vez que as tocares.</string>
+    <string name="kbitchord_cache_outside_playlists_cleared">Libertados %1$s</string>
 </resources>

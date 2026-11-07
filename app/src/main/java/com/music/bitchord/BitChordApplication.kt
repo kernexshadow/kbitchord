@@ -143,6 +143,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
         }
         AppSettings.init(this, authStore)
         com.music.bitchord.data.settings.KBitChordSettings.init(this)
+        com.music.bitchord.playback.KBitChordPlaylistCache.start()
         // Restores the addon token, so the first search after a process restart
         // doesn't have to attest the device again.
         com.music.bitchord.data.sources.addon.AddonAuth.init(this)

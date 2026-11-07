@@ -13,6 +13,7 @@ object KBitChordSettings {
     private const val PREFS = "kbitchord_settings"
     private const val KEY_DIRECT_SOURCE_NO_WAIT = "direct_source_no_wait"
     private const val KEY_ADDON_HEAD_START_SEC = "direct_source_addon_head_start_sec"
+    private const val KEY_CACHE_KEEP_PLAYLISTS = "cache_keep_playlists"
 
     const val MIN_ADDON_HEAD_START_SEC = 0
     const val MAX_ADDON_HEAD_START_SEC = 10
@@ -44,9 +45,22 @@ object KBitChordSettings {
      */
     val addonHeadStartSec = MutableStateFlow(DEFAULT_ADDON_HEAD_START_SEC)
 
+    /**
+     * K-14. When the song cache is full, songs that aren't in a playlist kept on
+     * this device (local ones, Spotify imports among them) are evicted first —
+     * see [KBitChordPlaylistCache][com.music.bitchord.playback.KBitChordPlaylistCache].
+     */
+    val cacheKeepPlaylists = MutableStateFlow(false)
+
+    fun setCacheKeepPlaylists(value: Boolean) {
+        cacheKeepPlaylists.value = value
+        prefs.edit().putBoolean(KEY_CACHE_KEEP_PLAYLISTS, value).apply()
+    }
+
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         directSourceNoWait.value = prefs.getBoolean(KEY_DIRECT_SOURCE_NO_WAIT, false)
+        cacheKeepPlaylists.value = prefs.getBoolean(KEY_CACHE_KEEP_PLAYLISTS, false)
         addonHeadStartSec.value =
             clampHeadStart(prefs.getInt(KEY_ADDON_HEAD_START_SEC, DEFAULT_ADDON_HEAD_START_SEC))
     }

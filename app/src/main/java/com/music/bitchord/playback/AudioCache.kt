@@ -86,7 +86,9 @@ object AudioCache {
      * unlimited — from Settings. Least-recently-used entries are dropped past it, so it's a
      * ceiling rather than something the listener has to manage day to day.
      */
-    private val evictor = DynamicLruCacheEvictor(AppSettings.DEFAULT_CACHE_LIMIT_BYTES)
+    private val evictor = DynamicLruCacheEvictor(AppSettings.DEFAULT_CACHE_LIMIT_BYTES).apply {
+        evictLast = KBitChordPlaylistCache::evictLast // KBitChord (K-14)
+    }
 
     /**
      * How much of the next track to fetch. About 50 seconds at 160kbps — long
@@ -1999,6 +2001,36 @@ object AudioCache {
     private fun cachedEndOf(key: String): Long = runCatching {
         cache.getCachedSpans(key).filter { it.isCached }.maxOfOrNull { it.position + it.length } ?: 0L
     }.getOrDefault(0L)
+
+    // ── KBitChord (K-14): clearing the cache outside playlists ───────────────
+
+    /**
+     * KBitChord (K-14): drops every entry whose song is not in a playlist kept
+     * on this device ([KBitChordPlaylistCache]) — Settings, "Clear cache outside
+     * playlists". An entry still being read can't be removed and stays.
+     *
+     * @param onComplete on the main thread, with the bytes freed.
+     */
+    fun kbClearOutsidePlaylists(onComplete: (Long) -> Unit = {}) {
+        if (!::cache.isInitialized) return
+        scope.launch {
+            var freed = 0L
+            cache.keys.toList().forEach { key ->
+                if (KBitChordPlaylistCache.keyInPlaylist(key) || key in kbFilling) return@forEach
+                val size = runCatching { cache.getCachedSpans(key).sumOf { it.length } }.getOrDefault(0L)
+                runCatching { cache.removeResource(key) }.onSuccess {
+                    freed += size
+                    val id = key.substringBefore('#')
+                    analysisHeads.remove(id)
+                    analysisHeadWant.remove(id)
+                    renditionKeys.remove(id)
+                }
+            }
+            TrackLog.d(TAG, "cleared ${freed / 1024}kB of the song cache outside playlists")
+            _contentsChanged.value++
+            withContext(Dispatchers.Main) { onComplete(freed) }
+        }
+    }
 
     // ── KBitChord (K-13): an offered better copy, kept for the next play ─────
 

@@ -349,6 +349,10 @@ fun SettingsScreen(
     var importStatus by remember { mutableStateOf<String?>(null) }
     var confirmImport by remember { mutableStateOf(false) }
     var confirmClearSongCache by remember { mutableStateOf(false) }
+    // KBitChord (K-14).
+    var confirmClearOutsidePlaylists by remember { mutableStateOf(false) }
+    val cacheKeepPlaylists by com.music.bitchord.data.settings.KBitChordSettings.cacheKeepPlaylists
+        .collectAsStateWithLifecycle()
     var showPerformanceWarning by remember { mutableStateOf(false) }
     var showPerformanceConfirmation by remember { mutableStateOf(false) }
     val backupScope = rememberCoroutineScope()
@@ -1504,6 +1508,17 @@ fun SettingsScreen(
                     steps = 19,
                 )
             }
+            // KBitChord (K-14): qualifies the limit above.
+            val keepPlaylistsTitle = stringResource(R.string.kbitchord_cache_keep_playlists)
+            val keepPlaylistsSubtitle = stringResource(R.string.kbitchord_cache_keep_playlists_subtitle)
+            row(keepPlaylistsTitle, keepPlaylistsSubtitle, "cache", "playlist", "spotify", divided = false) {
+                SettingsSubRow(
+                    title = keepPlaylistsTitle,
+                    checked = cacheKeepPlaylists,
+                    onCheckedChange = com.music.bitchord.data.settings.KBitChordSettings::setCacheKeepPlaylists,
+                    subtitle = keepPlaylistsSubtitle,
+                )
+            }
             val clearSongCacheTitle = stringResource(R.string.clear_song_cache)
             row(clearSongCacheTitle, "cache", "free space") {
                 SettingsRow(
@@ -1511,6 +1526,16 @@ fun SettingsScreen(
                     title = clearSongCacheTitle,
                     subtitle = stringResource(R.string.clear_song_cache_subtitle),
                     onClick = { confirmClearSongCache = true },
+                )
+            }
+            // KBitChord (K-14).
+            val clearOutsideTitle = stringResource(R.string.kbitchord_clear_cache_outside_playlists)
+            row(clearOutsideTitle, "cache", "playlist", "spotify", "free space") {
+                SettingsRow(
+                    icon = SfIcons.DeleteSweep,
+                    title = clearOutsideTitle,
+                    subtitle = stringResource(R.string.kbitchord_clear_cache_outside_playlists_subtitle),
+                    onClick = { confirmClearOutsidePlaylists = true },
                 )
             }
             val clearImageCacheTitle = stringResource(R.string.clear_image_cache)
@@ -1886,6 +1911,37 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmClearSongCache = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    // KBitChord (K-14).
+    if (confirmClearOutsidePlaylists) {
+        AlertDialog(
+            onDismissRequest = { confirmClearOutsidePlaylists = false },
+            title = { Text(stringResource(R.string.kbitchord_clear_cache_outside_playlists)) },
+            text = { Text(stringResource(R.string.kbitchord_clear_cache_outside_playlists_warning)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearOutsidePlaylists = false
+                    AudioCache.kbClearOutsidePlaylists { freed ->
+                        Toast.makeText(
+                            context,
+                            context.getString(
+                                R.string.kbitchord_cache_outside_playlists_cleared,
+                                android.text.format.Formatter.formatShortFileSize(context, freed),
+                            ),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }) {
+                    Text(stringResource(R.string.clear))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearOutsidePlaylists = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             },

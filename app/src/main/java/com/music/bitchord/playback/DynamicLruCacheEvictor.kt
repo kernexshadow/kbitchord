@@ -57,6 +57,13 @@ class DynamicLruCacheEvictor(
     private val leastRecentlyUsed = TreeSet<CacheSpan>(::compare)
 
     /**
+     * KBitChord (K-14): entries evicted only once nothing else is left to
+     * evict, oldest first among themselves — see [KBitChordPlaylistCache].
+     */
+    @Volatile
+    var evictLast: (String) -> Boolean = { false }
+
+    /**
      * Head spans exempt from eviction, oldest first. Ordered by the same clock
      * as [leastRecentlyUsed] so that releasing one back to ordinary LRU picks
      * the least useful.
@@ -113,7 +120,7 @@ class DynamicLruCacheEvictor(
     private fun evictCache(cache: Cache, requiredSpace: Long) {
         while (currentSize + requiredSpace > maxBytes) {
             if (leastRecentlyUsed.isNotEmpty()) {
-                cache.removeSpan(leastRecentlyUsed.first())
+                cache.removeSpan(pickVictim(leastRecentlyUsed, evictLast)) // KBitChord (K-14)
                 continue
             }
             // Nothing left but protected heads. Releasing the oldest back to
@@ -126,7 +133,14 @@ class DynamicLruCacheEvictor(
         }
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * KBitChord (K-14): the oldest span not [evictLast], or the oldest of
+         * all when every span is. [spans] is in eviction order, oldest first.
+         */
+        internal fun pickVictim(spans: Iterable<CacheSpan>, evictLast: (String) -> Boolean): CacheSpan =
+            spans.firstOrNull { !evictLast(it.key) } ?: spans.first()
+
         /** Twelve seconds of lossless, comfortably: what the head-only analysis pass reads. */
         const val DEFAULT_HEAD_BYTES = 4L * 1024 * 1024
 

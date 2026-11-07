@@ -17,6 +17,7 @@ are the ones to watch:
 | `BitChordApplication.kt`, `ui/screens/SettingsSheet.kt`, `playback/PlaybackService.kt`, `playback/DirectSourceGate.kt`, `sharedUi/…/ui/player/PlayerControls.kt` | [K-10](#k-10-start-on-youtube-if-the-addon-is-slow) |
 | `data/sources/addon/AddonClient.kt`, `data/sources/AddonSource.kt`, `BitChordApplication.kt` | [K-11](#k-11-addon-manifest-off-the-critical-path) |
 | `playback/AudioCache.kt` (key factory, `dropForeignEntries`, new `kb*` functions), `playback/PlaybackService.kt` (the offer calls) | [K-13](#k-13-the-offered-lossless-copy-for-the-next-play) |
+| `playback/DynamicLruCacheEvictor.kt`, `playback/AudioCache.kt` (evictor wiring, `kbClearOutsidePlaylists`), `ui/screens/SettingsSheet.kt` (Storage rows), `BitChordApplication.kt` | [K-14](#k-14-playlist-songs-stay-in-the-cache-longer) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -252,3 +253,26 @@ change can be dropped from KBitChord after merging X.
 - **Upstream status:** KBitChord only; builds on K-10 (upstream PR #1592).
 - **Watch:** upstream changes to `AudioCache`'s key factory, `keptUpgradeFor`, `completeSibling`, `keepsUpgrade`,
   `dropForeignEntries` or `swapIn`'s `alreadyFilled`.
+
+## K-14 Playlist songs stay in the cache longer
+
+- **Why:** the song cache evicts the least recently used songs whatever they are. The user wanted the songs of their
+  playlists to outlast the rest, and a way to clear everything else.
+- **What:** two Storage settings, counting the playlists kept on this device (`LocalPlaylistStore`: local playlists,
+  Spotify imports among them). YouTube Music account playlists don't count.
+  - "Keep playlist songs longer" (off by default): when the cache is full, the oldest span of a song that isn't in one
+    of those playlists is evicted first; playlist songs go, oldest first, only once nothing else is left.
+  - "Clear cache outside playlists": after a confirmation, removes every cache entry whose song isn't in one of those
+    playlists and shows how much it freed. An entry still being read stays.
+- **Files:** new `playback/KBitChordPlaylistCache.kt` (the playlists' video ids, kept in memory), test
+  `KBitChordPlaylistCacheTest.kt`, strings in `values{,-pt}/strings_kbitchord_playback.xml`. Upstream files edited,
+  each marked `KBitChord (K-14)`: `playback/DynamicLruCacheEvictor.kt` (`evictLast`, `pickVictim`, the companion made
+  internal for the test), `playback/AudioCache.kt` (the evictor's `evictLast`, `kbClearOutsidePlaylists`),
+  `ui/screens/SettingsSheet.kt` (two rows and a dialog), `BitChordApplication.kt` (one line),
+  `data/settings/KBitChordSettings.kt`.
+- **Tested:** unit tests for the eviction order. On the phone emulator with a local playlist of two songs: the clear
+  freed 62.5 MB; a playlist song then played straight from disk, and a song outside it was fetched again. The eviction
+  order itself was not exercised on a device (it needs a full cache).
+- **Remove:** revert the commit.
+- **Upstream status:** KBitChord only.
+- **Watch:** upstream changes to `DynamicLruCacheEvictor.evictCache` or `AudioCache.clear`.
