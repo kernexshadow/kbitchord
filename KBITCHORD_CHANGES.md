@@ -197,7 +197,7 @@ change can be dropped from KBitChord after merging X.
   wait: a mock answering its stream in 1 s played from the addon from the first note (2.6 s after the tap, search and
   checks included); one answering in 6 s went to YouTube at 3.0 s and offered the FLAC when it came.
 - **Remove:** revert the commit.
-- **Upstream status:** KBitChord only for now; may become an upstream PR after #1439.
+- **Upstream status:** upstream PR #1592 (open; settings in `AppSettings`, strings in every locale, independent of #1439).
 - **Watch:** upstream changes to `resolveDirect`, `lookForBetterCopy`, `swapIn` or the quality badge. Check with
   `:app:testDevDebugUnitTest --tests 'com.music.bitchord.KBitChord*'`.
 
@@ -219,5 +219,5 @@ change can be dropped from KBitChord after merging X.
 - **Tested:** `AddonSourceTest`, `AddonAuthTest`, `SourcesTest` pass. On the phone emulator with Nebula: the manifest was
   read at startup, and the first tracks played after it read no manifest before their search.
 - **Remove:** revert the commit.
-- **Upstream status:** KBitChord only for now; a good upstream PR on its own.
+- **Upstream status:** upstream PR #1590 (open; warm-up in `SourceRegistry.warmAddonManifests`).
 - **Watch:** upstream changes to `AddonClient.manifest`, `settingsFor` or `AddonSource.admitted`/`refreshPolicy`.
