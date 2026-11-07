@@ -41,3 +41,14 @@ class KBitChordUpgradeOfferTest {
         assertNull(UpgradeOffers.offered.value)
     }
 }
+
+/** KBitChord (K-10): the addon head start stays within what the slider offers. */
+class KBitChordHeadStartTest {
+
+    @Test
+    fun `the head start is kept between 0 and 10 seconds`() {
+        assertEquals(0, com.music.bitchord.data.settings.KBitChordSettings.clampHeadStart(-2))
+        assertEquals(3, com.music.bitchord.data.settings.KBitChordSettings.clampHeadStart(3))
+        assertEquals(10, com.music.bitchord.data.settings.KBitChordSettings.clampHeadStart(45))
+    }
+}

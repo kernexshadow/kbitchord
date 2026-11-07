@@ -238,6 +238,8 @@ fun SettingsScreen(
     val directSourceEarlyLookup by AppSettings.directSourceEarlyLookup.collectAsStateWithLifecycle()
     val directSourceNoWait by com.music.bitchord.data.settings.KBitChordSettings.directSourceNoWait
         .collectAsStateWithLifecycle()
+    val addonHeadStartSec by com.music.bitchord.data.settings.KBitChordSettings.addonHeadStartSec
+        .collectAsStateWithLifecycle()
     // A property of the hardware, so it is read once rather than remembered
     // against a key that can never change — see [DeviceCodecs.playsDolbyAtmos],
     // which caches the codec-list walk for the life of the process.
@@ -558,6 +560,20 @@ fun SettingsScreen(
                         onCheckedChange = com.music.bitchord.data.settings.KBitChordSettings::setDirectSourceNoWait,
                         subtitle = noWaitSubtitle,
                         enabled = directSourceStream && !party.inParty,
+                    )
+                }
+                val headStartTitle = stringResource(R.string.kbitchord_addon_head_start)
+                val headStartSubtitle = stringResource(R.string.kbitchord_addon_head_start_subtitle)
+                row(headStartTitle, headStartSubtitle, "addon", "youtube", "wait", "seconds", divided = false) {
+                    KBitChordSubSlider(
+                        title = headStartTitle,
+                        subtitle = headStartSubtitle,
+                        value = stringResource(R.string.seconds_short, addonHeadStartSec),
+                        current = addonHeadStartSec,
+                        range = com.music.bitchord.data.settings.KBitChordSettings.MIN_ADDON_HEAD_START_SEC..
+                            com.music.bitchord.data.settings.KBitChordSettings.MAX_ADDON_HEAD_START_SEC,
+                        onValue = com.music.bitchord.data.settings.KBitChordSettings::setAddonHeadStartSec,
+                        enabled = directSourceNoWait && directSourceStream && !party.inParty,
                     )
                 }
                 val onWifiTitle = stringResource(R.string.on_wifi)

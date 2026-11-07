@@ -14,7 +14,7 @@ are the ones to watch:
 | `app/src/main/java/com/music/bitchord/data/AppUpdateChecker.kt` | [K-02](#k-02-application-ids-and-updater-source), [K-05](#k-05-kbitchord-revisions-in-the-updater) |
 | Playback and settings files and strings listed in K-06 | [K-06](#k-06-find-next-song-early-upstream-pr-1439) |
 | Matching, playback and addon files listed in K-07, K-08, K-09 | [K-07](#k-07-shared-release-before-a-runtime-vouches-for-another-artist-upstream-pr-1456), [K-08](#k-08-keep-a-mid-song-lossless-upgrade-and-replay-it-from-disk-upstream-pr-1475), [K-09](#k-09-ask-an-addon-again-when-it-says-not-yet-upstream-pr-1523) |
-| `BitChordApplication.kt`, `ui/screens/SettingsSheet.kt`, `playback/PlaybackService.kt`, `playback/DirectSourceGate.kt`, `sharedUi/…/ui/player/PlayerControls.kt` | [K-10](#k-10-dont-wait-for-the-addon) |
+| `BitChordApplication.kt`, `ui/screens/SettingsSheet.kt`, `playback/PlaybackService.kt`, `playback/DirectSourceGate.kt`, `sharedUi/…/ui/player/PlayerControls.kt` | [K-10](#k-10-start-on-youtube-if-the-addon-is-slow) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -161,32 +161,38 @@ change can be dropped from KBitChord after merging X.
 - **Watch:** as K-06. Check with
   `:app:testDevDebugUnitTest --tests 'com.music.bitchord.AddonSourceTest' --tests 'com.music.bitchord.QualityUpgradeRetryTest' --tests 'com.music.bitchord.SharedCallsTest'`.
 
-## K-10 Don't wait for the addon
+## K-10 Start on YouTube if the addon is slow
 
 - **Why:** under Direct Source Stream a track whose addon answer isn't ready waits up to 15 s in silence before falling
   back to YouTube, and then swaps the addon copy in mid-song with a short cut. The user wanted playback to start at once
   and never be cut unless they ask.
-- **What:** a "Don't wait for the addon" setting under Direct Source Stream (Settings → Audio quality, phone only, off by
-  default).
-  - While the track is only *next* inside the window, the addon is waited on as before. Once it has to start (a tap, a
-    skip, or a transition that came first), its lookup is raced against YouTube's URL and whichever is ready first plays.
-    An answer already pinned by "Find next song early" plays from the addon as usual.
+- **What:** two settings under Direct Source Stream (Settings → Audio quality, phone only): "Start on YouTube if the
+  addon is slow" (off by default; first released in v1.9.1+k.2 as "Don't wait for the addon") and "Wait for the addon",
+  0–10 s, 3 s by default.
+  - While the track is only *next* inside the window, the addon is waited on as before (up to 15 s, unheard). Once it has
+    to start (a tap, a skip, or a transition that came first), YouTube's URL is resolved beside the lookup and the addon
+    gets the "Wait for the addon" time to answer; after it, YouTube plays. 0 s starts on whichever answers first, which is
+    nearly always YouTube (about 0.3 s against seconds for an addon). An answer already pinned by "Find next song early"
+    plays from the addon as usual.
   - A YouTube start keeps looking. A better copy found for the playing track is not swapped in: the player shows
     "FLAC available" (or "Hi-Res", "320 kbps", "Dolby Atmos") as a pill where the quality badge goes, shown whether or not
     stats for nerds is on. Tapping it, or "Upgrade quality" in the player menu, swaps it in through the usual audition.
     Leaving it alone plays YouTube to the end; the offer goes away with the track.
   - Not on TV: the TV settings don't show it and the TV player has no button, so the TV app behaves as before.
 - **Files:** new `data/settings/KBitChordSettings.kt` (own preferences file `kbitchord_settings`),
+  `ui/screens/KBitChordSettingsRows.kt` (the slider sub-row),
   `playback/HeldUpgrade.kt`, `shared/…/data/UpgradeOffers.kt`, `res/values{,-pt}/strings_kbitchord_playback.xml`,
   `sharedUi/…/composeResources/values{,-pt}/strings_kbitchord.xml`, test `KBitChordUpgradeOfferTest.kt`. Upstream files
   edited, each marked `KBitChord (K-10)`: `BitChordApplication.kt` (init, one line), `ui/screens/SettingsSheet.kt` (the
-  row), `playback/DirectSourceGate.kt` (`awaitPlaying`), `playback/PlaybackService.kt` (`resolveDirect` branch,
+  two rows), `playback/DirectSourceGate.kt` (`awaitPlaying`), `playback/PlaybackService.kt` (`resolveDirect` branch,
   `resolveDirectWithoutWaiting`, `acceptUpgradeOffer`, the two `swapIn` calls in `lookForBetterCopy`,
   `upgradeQualityNow`, `driveDirectWindow`, the collector in `onCreate`), `sharedUi/…/ui/player/PlayerControls.kt`
   (`PlaybackQualityLabel`, `UpgradeOfferButton`).
 - **Tested:** on the phone emulator with a local mock addon whose `/stream` answered after 12 s: the track started on
-  YouTube at once, "FLAC available" appeared when the answer came, and a tap swapped it in (676 ms seam).
+  YouTube at once, "FLAC available" appeared when the answer came, and a tap swapped it in (676 ms seam). With the 3 s
+  wait: a mock answering its stream in 1 s played from the addon from the first note (2.6 s after the tap, search and
+  checks included); one answering in 6 s went to YouTube at 3.0 s and offered the FLAC when it came.
 - **Remove:** revert the commit.
 - **Upstream status:** KBitChord only for now; may become an upstream PR after #1439.
 - **Watch:** upstream changes to `resolveDirect`, `lookForBetterCopy`, `swapIn` or the quality badge. Check with
-  `:app:testDevDebugUnitTest --tests 'com.music.bitchord.KBitChordUpgradeOfferTest'`.
+  `:app:testDevDebugUnitTest --tests 'com.music.bitchord.KBitChord*'`.

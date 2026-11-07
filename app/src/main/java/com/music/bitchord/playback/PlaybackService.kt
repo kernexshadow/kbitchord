@@ -5749,16 +5749,17 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * KBitChord (K-10): [resolveDirect] with "Don't wait for the addon" on.
+     * KBitChord (K-10): [resolveDirect] with "Start on YouTube if the addon is
+     * slow" on.
      *
-     * The addon is waited on only while the track is not the one playing yet —
-     * ExoPlayer preparing the next item inside the window, which has time to
-     * spare, so a lookup there behaves as it always has. Once the track has to
-     * start — a skip, a tap, or a transition that came before the answer — its
-     * lookup is raced against YouTube's URL instead, and whichever is ready
-     * first plays. A YouTube start hands the lookup to [QualityUpgrade] as
-     * usual, and [HeldUpgrade] then offers what it finds rather than swapping
-     * it in, so nothing cuts the audio unless the listener asks.
+     * The addon is waited on as before while the track is not the one playing
+     * yet — ExoPlayer preparing the next item inside the window, which has time
+     * to spare. Once the track has to start — a skip, a tap, or a transition
+     * that came before the answer — YouTube's URL is resolved beside the lookup
+     * and the addon gets [KBitChordSettings.addonHeadStartSec] to answer
+     * before YouTube plays. A YouTube start hands the lookup to [QualityUpgrade]
+     * as usual, and [HeldUpgrade] then offers what it finds rather than
+     * swapping it in, so nothing cuts the audio unless the listener asks.
      */
     private suspend fun resolveDirectWithoutWaiting(videoId: String, target: TrackMatcher.Target): Resolved =
         kotlinx.coroutines.coroutineScope {
@@ -5779,6 +5780,7 @@ class PlaybackService : MediaLibraryService() {
             mustStart.cancel()
             if (answeredFirst) addon.await()?.let { return@coroutineScope Resolved.Module(it) }
 
+            val startedAt = SystemClock.elapsedRealtime()
             var youTubeError: Exception? = null
             val youtube = async {
                 try {
@@ -5788,6 +5790,21 @@ class PlaybackService : MediaLibraryService() {
                 } catch (e: Exception) {
                     youTubeError = e
                     null
+                }
+            }
+            // The addon's head start. YouTube is resolving meanwhile, so it is
+            // ready the moment this runs out.
+            val headStartMs = com.music.bitchord.data.settings.KBitChordSettings.addonHeadStartSec.value * 1_000L
+            if (headStartMs > 0 && !addon.isCompleted) {
+                withTimeoutOrNull(headStartMs) { addon.await() }?.let { direct ->
+                    youtube.cancel()
+                    TrackLog.d(
+                        "BitChord",
+                        "addon answered for '${target.title}' ${SystemClock.elapsedRealtime() - startedAt}ms " +
+                            "after it had to start, inside the ${headStartMs / 1000}s head start",
+                        about = videoId,
+                    )
+                    return@coroutineScope Resolved.Module(direct)
                 }
             }
             val addonFirst = select<Boolean> {
@@ -5816,7 +5833,8 @@ class PlaybackService : MediaLibraryService() {
                 if (gaveUp) {
                     "no addon served '${target.title}' in time; playing it from YouTube"
                 } else {
-                    "the addon wasn't ready for '${target.title}'; playing it from YouTube and still looking"
+                    "the addon didn't answer for '${target.title}' within the ${headStartMs / 1000}s head start " +
+                        "(${SystemClock.elapsedRealtime() - startedAt}ms); playing it from YouTube and still looking"
                 },
                 about = videoId,
             )

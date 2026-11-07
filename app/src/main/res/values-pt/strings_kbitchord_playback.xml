@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- KBitChord (K-10). -->
 <resources>
-    <string name="kbitchord_direct_source_no_wait">Não esperar pelo addon</string>
-    <string name="kbitchord_direct_source_no_wait_subtitle">Se o addon não estiver pronto quando uma música começa, ela toca do YouTube. Quando for encontrada uma cópia melhor, o player mostra um botão para mudar.</string>
+    <string name="kbitchord_direct_source_no_wait">Começar no YouTube se o addon demorar</string>
+    <string name="kbitchord_direct_source_no_wait_subtitle">Se o addon não tiver respondido quando uma música tem de começar, ela toca do YouTube. Quando for encontrada uma cópia melhor, o player mostra um botão para mudar.</string>
+    <string name="kbitchord_addon_head_start">Esperar pelo addon</string>
+    <string name="kbitchord_addon_head_start_subtitle">Quanto tempo uma música em que tocas ou para a qual saltas espera pelo addon antes de tocar do YouTube. Com 0 s começa no que responder primeiro.</string>
 </resources>
