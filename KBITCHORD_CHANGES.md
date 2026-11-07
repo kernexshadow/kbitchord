@@ -178,6 +178,9 @@ change can be dropped from KBitChord after merging X.
     gets the "Wait for the addon" time to answer; after it, YouTube plays. 0 s starts on whichever answers first, which is
     nearly always YouTube (about 0.3 s against seconds for an addon). An answer already pinned by "Find next song early"
     plays from the addon as usual.
+  - The wait counts from when that track's lookup began, not from the tap (`DirectSourceGate.waitLeftMs`): a lookup
+    started early ("Find next song early", or read-ahead inside the window) that still has no answer when the listener
+    skips to the track goes straight to YouTube.
   - A YouTube start keeps looking. A better copy found for the playing track is not swapped in: the player shows
     "FLAC available" (or "Hi-Res", "320 kbps", "Dolby Atmos") as a pill where the quality badge goes, shown whether or not
     stats for nerds is on. Tapping it, or "Upgrade quality" in the player menu, swaps it in through the usual audition.

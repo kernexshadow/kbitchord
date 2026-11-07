@@ -5792,11 +5792,15 @@ class PlaybackService : MediaLibraryService() {
                     null
                 }
             }
-            // The addon's head start. YouTube is resolving meanwhile, so it is
-            // ready the moment this runs out.
+            // The addon's head start, counted from when this track's lookup
+            // began. YouTube is resolving meanwhile, so it is ready the moment
+            // this runs out.
             val headStartMs = com.music.bitchord.data.settings.KBitChordSettings.addonHeadStartSec.value * 1_000L
-            if (headStartMs > 0 && !addon.isCompleted) {
-                withTimeoutOrNull(headStartMs) { addon.await() }?.let { direct ->
+            val lookingSince = DirectSourceGate.lookingSince(videoId)
+            val waitMs = DirectSourceGate.waitLeftMs(headStartMs, lookingSince, startedAt)
+            val ranBeforeMs = lookingSince?.let { (startedAt - it).coerceAtLeast(0L) } ?: 0L
+            if (waitMs > 0 && !addon.isCompleted) {
+                withTimeoutOrNull(waitMs) { addon.await() }?.let { direct ->
                     youtube.cancel()
                     TrackLog.d(
                         "BitChord",
@@ -5834,7 +5838,8 @@ class PlaybackService : MediaLibraryService() {
                     "no addon served '${target.title}' in time; playing it from YouTube"
                 } else {
                     "the addon didn't answer for '${target.title}' within the ${headStartMs / 1000}s head start " +
-                        "(${SystemClock.elapsedRealtime() - startedAt}ms); playing it from YouTube and still looking"
+                        "(${SystemClock.elapsedRealtime() - startedAt}ms after it had to start, its lookup " +
+                        "${ranBeforeMs}ms before); playing it from YouTube and still looking"
                 },
                 about = videoId,
             )

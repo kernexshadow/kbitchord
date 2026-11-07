@@ -230,7 +230,11 @@ object DirectSourceGate {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private class Lookup(val work: Deferred<SourceStream?>) {
+    private class Lookup(
+        val work: Deferred<SourceStream?>,
+        /** When the search began — K-10 counts the addon's wait from here. */
+        val startedAtMs: Long = android.os.SystemClock.elapsedRealtime(),
+    ) {
         /**
          * When the first caller began *waiting* on [work] — unset until one
          * has. An early lookup ([lookAhead]) starts the search without starting
@@ -342,6 +346,20 @@ object DirectSourceGate {
 
     /** The lookup for [videoId] if it is still going, past the point anyone waits for it. */
     fun stillLooking(videoId: String): Deferred<SourceStream?>? = lookups[videoId]?.work
+
+    /** KBitChord (K-10): when the lookup still running for [videoId] began, or null when none is. */
+    fun lookingSince(videoId: String): Long? = lookups[videoId]?.startedAtMs
+
+    /**
+     * KBitChord (K-10): what is left of a [waitMs] wait for the addon at [nowMs], counted
+     * from when the track's lookup began rather than from now. A lookup started early —
+     * "Find next song early", or read-ahead inside the window — has already had that
+     * long, and no answer by now is no reason to wait in silence again.
+     */
+    internal fun waitLeftMs(waitMs: Long, lookingSinceMs: Long?, nowMs: Long): Long {
+        val since = lookingSinceMs?.coerceAtMost(nowMs) ?: nowMs
+        return (waitMs - (nowMs - since)).coerceAtLeast(0L)
+    }
 
     /**
      * [videoId] is about to play from YouTube because the addons did not

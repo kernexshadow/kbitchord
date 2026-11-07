@@ -52,3 +52,26 @@ class KBitChordHeadStartTest {
         assertEquals(10, com.music.bitchord.data.settings.KBitChordSettings.clampHeadStart(45))
     }
 }
+
+/** KBitChord (K-10): the addon's wait counts from when the track's lookup began. */
+class KBitChordWaitLeftTest {
+
+    private fun left(waitMs: Long, since: Long?, now: Long) =
+        com.music.bitchord.playback.DirectSourceGate.waitLeftMs(waitMs, since, now)
+
+    @Test
+    fun `a lookup started now gets the whole wait`() {
+        assertEquals(4_000L, left(4_000, 10_000, 10_000))
+        assertEquals(4_000L, left(4_000, null, 10_000))
+    }
+
+    @Test
+    fun `a lookup started earlier gets only what is left`() {
+        assertEquals(3_000L, left(4_000, 9_000, 10_000))
+    }
+
+    @Test
+    fun `a lookup that has run longer than the wait gets none`() {
+        assertEquals(0L, left(4_000, 3_000, 63_000))
+    }
+}
