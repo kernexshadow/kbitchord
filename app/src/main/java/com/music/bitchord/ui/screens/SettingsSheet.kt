@@ -236,6 +236,8 @@ fun SettingsScreen(
     val dolbyAtmos by AppSettings.dolbyAtmos.collectAsStateWithLifecycle()
     val directSourceStream by AppSettings.directSourceStream.collectAsStateWithLifecycle()
     val directSourceEarlyLookup by AppSettings.directSourceEarlyLookup.collectAsStateWithLifecycle()
+    val directSourceNoWait by com.music.bitchord.data.settings.KBitChordSettings.directSourceNoWait
+        .collectAsStateWithLifecycle()
     // A property of the hardware, so it is read once rather than remembered
     // against a key that can never change — see [DeviceCodecs.playsDolbyAtmos],
     // which caches the codec-list walk for the life of the process.
@@ -543,6 +545,18 @@ fun SettingsScreen(
                         checked = directSourceEarlyLookup && directSourceStream && !party.inParty,
                         onCheckedChange = AppSettings::setDirectSourceEarlyLookup,
                         subtitle = earlyLookupSubtitle,
+                        enabled = directSourceStream && !party.inParty,
+                    )
+                }
+                // KBitChord (K-10).
+                val noWaitTitle = stringResource(R.string.kbitchord_direct_source_no_wait)
+                val noWaitSubtitle = stringResource(R.string.kbitchord_direct_source_no_wait_subtitle)
+                row(noWaitTitle, noWaitSubtitle, "addon", "youtube", "wait", "seamless", divided = false) {
+                    SettingsSubRow(
+                        title = noWaitTitle,
+                        checked = directSourceNoWait && directSourceStream && !party.inParty,
+                        onCheckedChange = com.music.bitchord.data.settings.KBitChordSettings::setDirectSourceNoWait,
+                        subtitle = noWaitSubtitle,
                         enabled = directSourceStream && !party.inParty,
                     )
                 }

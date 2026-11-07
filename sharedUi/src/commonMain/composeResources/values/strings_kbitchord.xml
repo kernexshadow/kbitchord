@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- KBitChord (K-10). Kept out of strings.xml so upstream edits to it never conflict. -->
+<resources>
+    <string name="kbitchord_upgrade_available">%1$s available</string>
+    <string name="kbitchord_upgrade_switch">Switch to %1$s</string>
+</resources>

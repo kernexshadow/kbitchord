@@ -150,6 +150,15 @@ object DirectSourceGate {
     private fun Open.admits(mediaId: String) = mediaId in playing || mediaId == next
 
     /**
+     * KBitChord (K-10): returns once [mediaId] is audible, as opposed to only
+     * next inside the window — the moment a track that isn't ready has to start
+     * on something. See `PlaybackService.resolveDirectWithoutWaiting`.
+     */
+    suspend fun awaitPlaying(mediaId: String) {
+        open.first { mediaId in it.playing }
+    }
+
+    /**
      * Blocks a resolve for [mediaId] until it is playing or next inside the
      * window. Returns at once when the gate is off, the track is already
      * admitted, or the calling thread is inside [ungated].

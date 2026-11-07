@@ -1305,6 +1305,8 @@ class PlaybackService : MediaLibraryService() {
         localBitrateCache.clear()
         measuredBitrateCache.clear()
         QualityUpgrade.forgetLastSession()
+        // KBitChord (K-10): a tap on the player's offer button.
+        scope.launch { com.music.bitchord.data.UpgradeOffers.accepted.collect(::acceptUpgradeOffer) }
 
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
@@ -4599,7 +4601,8 @@ class PlaybackService : MediaLibraryService() {
                 TrackLog.d("BitChord", "re-offering the upgrade already proved for $mediaId")
                 NerdStats.onLosslessRaceStart(mediaId)
                 try {
-                    swapIn(mediaId, shelved)
+                    // KBitChord (K-10): offered, not swapped, under "Don't wait for the addon".
+                    if (HeldUpgrade.holds(mediaId)) HeldUpgrade.offer(mediaId, shelved) else swapIn(mediaId, shelved)
                 } finally {
                     NerdStats.onLosslessRaceEnd(mediaId)
                 }
@@ -4646,7 +4649,8 @@ class PlaybackService : MediaLibraryService() {
                 QualityUpgrade.lookAgain(mediaId, playingSeconds)
             } ?: return@launch
             try {
-                swapIn(mediaId, better)
+                // KBitChord (K-10): offered, not swapped, under "Don't wait for the addon".
+                if (HeldUpgrade.holds(mediaId)) HeldUpgrade.offer(mediaId, better) else swapIn(mediaId, better)
             } finally {
                 // The badge comes down when the upgrade is done, not when the
                 // search that found it was — including the deliberate wait in
@@ -4690,6 +4694,11 @@ class PlaybackService : MediaLibraryService() {
     private fun upgradeQualityNow() {
         val player = player ?: return
         val mediaId = player.currentMediaItem?.mediaId ?: return
+        // KBitChord (K-10): a copy already on offer is the answer; no search needed.
+        if (HeldUpgrade.has(mediaId)) {
+            acceptUpgradeOffer(mediaId)
+            return
+        }
         // Do not charge the manual cooldown for a command that merely arrived
         // while this track's automatic or manual upgrade was already running.
         // The UI disables the row too, but the service is the authoritative
@@ -4717,6 +4726,7 @@ class PlaybackService : MediaLibraryService() {
         // answers are discarded. The manifest is intentionally unaffected.
         SourceRegistry.clearCompletedAddonTrackCalls()
         QualityUpgrade.askByHand(mediaId)
+        HeldUpgrade.askedByHand(mediaId)
         TrackLog.d("BitChord", "upgrade asked for by hand for $mediaId", about = mediaId)
         lookForBetterCopy(player)
     }
@@ -5707,6 +5717,10 @@ class PlaybackService : MediaLibraryService() {
      * short cut before the first note rather than a YouTube start and a seam.
      */
     private suspend fun resolveDirect(videoId: String, target: TrackMatcher.Target): Resolved {
+        // KBitChord (K-10).
+        if (com.music.bitchord.data.settings.KBitChordSettings.directSourceNoWait.value) {
+            return resolveDirectWithoutWaiting(videoId, target)
+        }
         val direct = runCatching { DirectSourceGate.lookup(videoId, target) }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
@@ -5732,6 +5746,103 @@ class PlaybackService : MediaLibraryService() {
         }
         DirectSourceGate.startedOnYouTube(videoId, target)
         return Resolved.YouTube(url)
+    }
+
+    /**
+     * KBitChord (K-10): [resolveDirect] with "Don't wait for the addon" on.
+     *
+     * The addon is waited on only while the track is not the one playing yet —
+     * ExoPlayer preparing the next item inside the window, which has time to
+     * spare, so a lookup there behaves as it always has. Once the track has to
+     * start — a skip, a tap, or a transition that came before the answer — its
+     * lookup is raced against YouTube's URL instead, and whichever is ready
+     * first plays. A YouTube start hands the lookup to [QualityUpgrade] as
+     * usual, and [HeldUpgrade] then offers what it finds rather than swapping
+     * it in, so nothing cuts the audio unless the listener asks.
+     */
+    private suspend fun resolveDirectWithoutWaiting(videoId: String, target: TrackMatcher.Target): Resolved =
+        kotlinx.coroutines.coroutineScope {
+            val addon = async {
+                try {
+                    DirectSourceGate.lookup(videoId, target)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            val mustStart = async { DirectSourceGate.awaitPlaying(videoId) }
+            val answeredFirst = select<Boolean> {
+                addon.onAwait { true }
+                mustStart.onAwait { false }
+            }
+            mustStart.cancel()
+            if (answeredFirst) addon.await()?.let { return@coroutineScope Resolved.Module(it) }
+
+            var youTubeError: Exception? = null
+            val youtube = async {
+                try {
+                    StreamResolver.resolve(videoId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    youTubeError = e
+                    null
+                }
+            }
+            val addonFirst = select<Boolean> {
+                addon.onAwait { true }
+                youtube.onAwait { false }
+            }
+            if (addonFirst) {
+                addon.await()?.let { direct ->
+                    youtube.cancel()
+                    return@coroutineScope Resolved.Module(direct)
+                }
+            }
+            val url = youtube.await()
+            if (url == null) {
+                // YouTube cannot serve it, so the addon is all that is left.
+                val direct = addon.await() ?: DirectSourceGate.stillLooking(videoId)?.await()
+                return@coroutineScope Resolved.Module(
+                    direct ?: throw (youTubeError ?: java.io.IOException("no stream for $videoId")),
+                )
+            }
+            val gaveUp = addon.isCompleted
+            // Ends only this wait. The lookup itself runs on, for the offer.
+            addon.cancel()
+            TrackLog.d(
+                "BitChord",
+                if (gaveUp) {
+                    "no addon served '${target.title}' in time; playing it from YouTube"
+                } else {
+                    "the addon wasn't ready for '${target.title}'; playing it from YouTube and still looking"
+                },
+                about = videoId,
+            )
+            DirectSourceGate.startedOnYouTube(videoId, target)
+            Resolved.YouTube(url)
+        }
+
+    /**
+     * KBitChord (K-10): swaps in the copy [HeldUpgrade] offered for [mediaId],
+     * because the listener tapped it in the player or asked from the menu.
+     */
+    private fun acceptUpgradeOffer(mediaId: String) {
+        val player = player ?: return
+        if (player.currentMediaItem?.mediaId != mediaId) return
+        val stream = HeldUpgrade.take(mediaId) ?: return
+        if (upgradeJob?.isActive == true) cancelStaleUpgradeJob()
+        upgradeFor = mediaId
+        TrackLog.d("BitChord", "switching $mediaId to the offered ${stream.format.summary}", about = mediaId)
+        upgradeJob = scope.launch(TrackLog.about(mediaId)) {
+            NerdStats.onLosslessRaceStart(mediaId)
+            try {
+                swapIn(mediaId, stream)
+            } finally {
+                NerdStats.onLosslessRaceEnd(mediaId)
+            }
+        }
     }
 
     /**
@@ -6680,6 +6791,7 @@ class PlaybackService : MediaLibraryService() {
             if (crossfade?.isTransitioning() == true) spare?.currentMediaItem?.mediaId?.let(::add)
         }
         if (DirectSourceGate.onPlaying(audible)) AudioCache.cancelDirect()
+        HeldUpgrade.onPlaying(audible)
         if (!DirectSourceGate.isActive() || !exoPlayer.isPlaying) return
         if (SystemClock.elapsedRealtime() - lastSeekAt < SEEK_SETTLE_MS) return
         val current = exoPlayer.currentMediaItem ?: return
