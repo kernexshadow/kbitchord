@@ -4602,7 +4602,7 @@ class PlaybackService : MediaLibraryService() {
                 NerdStats.onLosslessRaceStart(mediaId)
                 try {
                     // KBitChord (K-10): offered, not swapped, under "Don't wait for the addon".
-                    if (HeldUpgrade.holds(mediaId)) HeldUpgrade.offer(mediaId, shelved) else swapIn(mediaId, shelved)
+                    if (HeldUpgrade.holds(mediaId)) HeldUpgrade.offer(mediaId, shelved, uri) else swapIn(mediaId, shelved)
                 } finally {
                     NerdStats.onLosslessRaceEnd(mediaId)
                 }
@@ -4650,7 +4650,7 @@ class PlaybackService : MediaLibraryService() {
             } ?: return@launch
             try {
                 // KBitChord (K-10): offered, not swapped, under "Don't wait for the addon".
-                if (HeldUpgrade.holds(mediaId)) HeldUpgrade.offer(mediaId, better) else swapIn(mediaId, better)
+                if (HeldUpgrade.holds(mediaId)) HeldUpgrade.offer(mediaId, better, uri) else swapIn(mediaId, better)
             } finally {
                 // The badge comes down when the upgrade is done, not when the
                 // search that found it was — including the deliberate wait in

@@ -489,7 +489,7 @@ object AudioCache {
                         SourceResolver.canSubstituteForYouTube() ->
                             "$videoId#alt${atmosKeySuffix()}".let { completeSibling(videoId, it) ?: it }
                         else -> completeSibling(videoId, videoId) ?: videoId
-                    }
+                    }.let { plain -> kbLosslessKey(videoId, plain, spec.uri) ?: plain } // KBitChord (K-13)
                 }
             }
             // A source-backed track keys on the source and its track id alone.
@@ -1224,6 +1224,7 @@ object AudioCache {
         scope.launch {
             var dropped = 0
             cache.keys.toList().forEach { key ->
+                if (key in kbFilling) return@forEach // KBitChord (K-13): an offered copy still downloading
                 val meta = runCatching { cache.getContentMetadata(key) }.getOrNull() ?: return@forEach
                 // Nothing near the playhead goes — and nothing there is judged
                 // either, because judging an upgrade's rendition is what marks
@@ -1998,6 +1999,160 @@ object AudioCache {
     private fun cachedEndOf(key: String): Long = runCatching {
         cache.getCachedSpans(key).filter { it.isCached }.maxOfOrNull { it.position + it.length } ?: 0L
     }.getOrDefault(0L)
+
+    // ── KBitChord (K-13): an offered better copy, kept for the next play ─────
+
+    /** Keys [kbKeepOfferedCopy] is filling, which [dropForeignEntries] leaves alone. */
+    private val kbFilling = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    /**
+     * KBitChord (K-13, on Wi-Fi): downloads the copy [HeldUpgrade] is offering
+     * for the track [itemUri] plays, whole, into the rendition an upgrade swaps
+     * to. A tap on the offer then reads it from disk, and once [kbSettleOffer]
+     * has marked it kept, a fresh play of the track starts on it — see
+     * [keptUpgradeFor]. Straight from [stream]'s URL, like [completeUpgrade],
+     * and sized by one header request, since a ranged read does not record the
+     * file's length.
+     *
+     * @param carryOn asked before every chunk: off Wi-Fi, the ceiling no longer
+     *   allowing the source, or the offer taken — the swap's own reads fill the
+     *   entry then — stops the download.
+     * @return whether the entry is whole on disk.
+     */
+    suspend fun kbKeepOfferedCopy(itemUri: Uri, stream: SourceStream, carryOn: () -> Boolean): Boolean {
+        if (!::cache.isInitialized) return false
+        val tier = reusableTierOf(stream.format) ?: return false
+        if (StreamContainer.isManifest(stream.url)) return false
+        val uri = Uri.parse(QualityUpgrade.upgradedUri(itemUri.toString()))
+        val key = keyFactory.buildCacheKey(DataSpec(uri))
+        if (!isReusableUpgradeKey(key)) return false
+        val about = mediaIdIn(uri)
+        if (isComplete(key)) return true
+        val total = com.music.bitchord.data.sources.StreamLengthProbe.bytesOf(stream) ?: return false
+        kbFilling += key
+        try {
+            runCatching {
+                cache.applyContentMetadataMutations(
+                    key,
+                    ContentMetadataMutations().also { mutations ->
+                        ContentMetadataMutations.setContentLength(mutations, total)
+                        mutations.set(META_ORIGIN, Origin.OTHER.name)
+                        about?.let { mutations.set(META_MEDIA_ID, it) }
+                        mutations.set(META_PLAYBACK, "1")
+                        mutations.set(META_TIER, tier)
+                    },
+                )
+            }.onFailure { return false }
+            TrackLog.d(
+                TAG,
+                "keeping the offered ${stream.format.summary} (${total / 1024}kB) in $key for the next play",
+                about = about,
+            )
+            var stalls = 0
+            while (carryOn()) {
+                val holes = missingRanges(total, CHUNK_BYTES) { position, size -> cache.getCachedBytes(key, position, size) }
+                if (holes.isEmpty()) break
+                for ((position, size) in holes) {
+                    if (!carryOn()) break
+                    fetch(key, uri, position, size, direct = stream)
+                }
+                val left = missingRanges(total, CHUNK_BYTES) { position, size -> cache.getCachedBytes(key, position, size) }
+                if (left.size >= holes.size) {
+                    // Nothing landed: someone else holds the entry, or the
+                    // server stopped answering. A few tries, then give up.
+                    if (++stalls >= KB_FILL_STALLS) break
+                    delay(KB_FILL_RETRY_MS)
+                } else {
+                    stalls = 0
+                }
+            }
+            val whole = isComplete(key)
+            TrackLog.d(TAG, if (whole) "$key is whole on disk" else "stopped short of keeping $key whole", about = about)
+            return whole
+        } finally {
+            kbFilling -= key
+        }
+    }
+
+    /**
+     * KBitChord (K-13): what an offer leaves behind once its track stops
+     * playing.
+     *
+     *  - The offered copy is whole on disk ([kbKeepOfferedCopy]): it is marked
+     *    kept, so the next play starts on it, and the YouTube copy it replaces
+     *    is dropped — unless Automix still needs that copy for its analysis.
+     *  - Otherwise the YouTube copy [opusKey] is noted as having a lossless copy
+     *    at the addon, and the next play asks the addon first — see
+     *    [kbLosslessKey].
+     *
+     * Only for a track that has left the playhead: both change which entry a
+     * fresh play of the track opens.
+     */
+    fun kbSettleOffer(videoId: String, itemUri: Uri?, opusKey: String?) {
+        if (!::cache.isInitialized) return
+        scope.launch {
+            val hifiKey = itemUri?.let {
+                keyFactory.buildCacheKey(DataSpec(Uri.parse(QualityUpgrade.upgradedUri(it.toString()))))
+            }
+            if (hifiKey != null && isReusableUpgradeKey(hifiKey) && hifiKey !in kbFilling && keepsUpgrade(hifiKey)) {
+                for (key in listOf(videoId, "$videoId$ALT_SUFFIX", "$videoId$ALT_SUFFIX-noatmos", "$videoId$KB_LOSSLESS_SUFFIX")) {
+                    val meta = runCatching { cache.getContentMetadata(key) }.getOrNull() ?: continue
+                    if (meta.get(META_ORIGIN, null as String?) != Origin.YOUTUBE.name) continue
+                    if (meta.get(META_ANALYSIS, null as String?) != null) continue
+                    if (cache.getCachedSpans(key).isEmpty()) continue
+                    runCatching { cache.removeResource(key) }
+                        .onSuccess { TrackLog.d(TAG, "dropped the YouTube copy $key; $hifiKey replaces it", about = videoId) }
+                }
+                return@launch
+            }
+            val key = opusKey ?: return@launch
+            runCatching {
+                if (cache.getCachedSpans(key).isEmpty()) return@runCatching
+                val meta = cache.getContentMetadata(key)
+                if (meta.get(META_ORIGIN, null as String?) != Origin.YOUTUBE.name) return@runCatching
+                if (meta.get(META_KB_LOSSLESS, null as String?) != null) return@runCatching
+                cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(META_KB_LOSSLESS, "1"))
+                // What filled the YouTube copy must not be reused for the new
+                // entry the next play opens — see [kbLosslessKey].
+                StreamChoice.forget(videoId)
+                TrackLog.d(TAG, "$key noted as having a lossless copy at the addon", about = videoId)
+            }
+        }
+    }
+
+    /**
+     * KBitChord (K-13): the entry a fresh play of a YouTube track reads when its
+     * YouTube copy [plain] was noted as having a lossless copy at the addon
+     * ([kbSettleOffer]) — a separate one, so the play goes to the resolver,
+     * which under "Start on YouTube if the addon is slow" waits for the addon
+     * before YouTube, instead of starting on the copy on disk. Offline, or once
+     * that entry holds nothing yet and the network is gone, [completeSibling]
+     * still hands back the YouTube copy. Null when nothing is noted.
+     *
+     * Read on every open; everything it reads changes only between plays.
+     */
+    private fun kbLosslessKey(videoId: String, plain: String, uri: Uri): String? {
+        if (plain != videoId && !plain.startsWith("$videoId$ALT_SUFFIX")) return null
+        if (!com.music.bitchord.data.settings.KBitChordSettings.directSourceNoWait.value) return null
+        if (uri.getQueryParameter(WATCH_READ_PARAM) != null ||
+            uri.getQueryParameter(DIRECT_YOUTUBE_PARAMETER) == "1" ||
+            AutomixAnalysisSource.requestsYouTubeOpus(
+                uri.getQueryParameter(AutomixAnalysisSource.OPUS_QUERY_PARAMETER),
+            ) ||
+            OriginalVersion.isPinned(videoId)
+        ) {
+            return null
+        }
+        val noted = runCatching { cache.getContentMetadata(plain).get(META_KB_LOSSLESS, null as String?) }.getOrNull()
+            ?: return null
+        val key = "$videoId$KB_LOSSLESS_SUFFIX"
+        return completeSibling(videoId, key) ?: key
+    }
+
+    private const val META_KB_LOSSLESS = "kb_lossless"
+    private const val KB_LOSSLESS_SUFFIX = "#kblossless"
+    private const val KB_FILL_STALLS = 3
+    private const val KB_FILL_RETRY_MS = 2_000L
 
     /** Plain HTTP for [completeUpgrade]'s fetches, which carry their stream's own URL and headers. */
     private val directUpstream: DataSource.Factory by lazy { OkHttpDataSource.Factory(Http.client) }

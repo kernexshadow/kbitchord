@@ -16,6 +16,7 @@ are the ones to watch:
 | Matching, playback and addon files listed in K-07, K-08, K-09 | [K-07](#k-07-shared-release-before-a-runtime-vouches-for-another-artist-upstream-pr-1456), [K-08](#k-08-keep-a-mid-song-lossless-upgrade-and-replay-it-from-disk-upstream-pr-1475), [K-09](#k-09-ask-an-addon-again-when-it-says-not-yet-upstream-pr-1523) |
 | `BitChordApplication.kt`, `ui/screens/SettingsSheet.kt`, `playback/PlaybackService.kt`, `playback/DirectSourceGate.kt`, `sharedUi/…/ui/player/PlayerControls.kt` | [K-10](#k-10-start-on-youtube-if-the-addon-is-slow) |
 | `data/sources/addon/AddonClient.kt`, `data/sources/AddonSource.kt`, `BitChordApplication.kt` | [K-11](#k-11-addon-manifest-off-the-critical-path) |
+| `playback/AudioCache.kt` (key factory, `dropForeignEntries`, new `kb*` functions), `playback/PlaybackService.kt` (the offer calls) | [K-13](#k-13-the-offered-lossless-copy-for-the-next-play) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -224,3 +225,30 @@ change can be dropped from KBitChord after merging X.
 - **Remove:** revert the commit.
 - **Upstream status:** upstream PR #1590 (open; warm-up in `SourceRegistry.warmAddonManifests`).
 - **Watch:** upstream changes to `AddonClient.manifest`, `settingsFor` or `AddonSource.admitted`/`refreshPolicy`.
+
+## K-13 The offered lossless copy, for the next play
+
+- **Why:** with K-10, a track that started on YouTube and was offered a FLAC the listener didn't take started on its
+  cached YouTube copy again the next time, and offered the FLAC again. The app already knew the addon had it.
+- **What:** when K-10's offer is made and its track stops playing:
+  - **On Wi-Fi** (an unmetered connection) the offered copy is downloaded whole in the background, into the rendition
+    an upgrade swaps to (`#hifi`), while the track keeps playing YouTube. A tap on the offer swaps to it from disk. Once
+    the track has stopped playing it is marked kept, so the next play starts on it, and the YouTube copy is dropped
+    (kept when Automix's analysis still reads it). Measured: a 26.8 MB FLAC whole in 13 s; the next play started on it
+    in 0.98 s, with no request to YouTube or the addon.
+  - **Otherwise** (mobile data, or the download never came whole) the YouTube copy's cache entry is tagged as having a
+    lossless copy at the addon. The next play then opens a separate entry (`#kblossless`), so it goes to the resolver
+    and K-10 waits for the addon instead of starting on the copy on disk. Offline, `completeSibling` still hands back
+    the YouTube copy. Measured after an app restart on mobile data: the addon answered in 2.8 s and the track played
+    FLAC from the first note.
+  - The tag lives in the YouTube entry's own content metadata, so it goes with that entry (eviction, Clear song cache).
+- **Files:** `playback/HeldUpgrade.kt` (offers remember their queue item and cache entry; the download and the settling),
+  upstream files edited, each marked `KBitChord (K-13)`: `playback/AudioCache.kt` (one line in the key factory, one in
+  `dropForeignEntries`, and `kbKeepOfferedCopy`, `kbSettleOffer`, `kbLosslessKey`), `playback/PlaybackService.kt` (the
+  item URI passed to `HeldUpgrade.offer`).
+- **Tested:** on the phone emulator with Nebula, both paths above. Not tested: offline replay of a tagged track, a tap
+  on the offer while the download is running, a physical device.
+- **Remove:** revert the commit.
+- **Upstream status:** KBitChord only; builds on K-10 (upstream PR #1592).
+- **Watch:** upstream changes to `AudioCache`'s key factory, `keptUpgradeFor`, `completeSibling`, `keepsUpgrade`,
+  `dropForeignEntries` or `swapIn`'s `alreadyFilled`.
