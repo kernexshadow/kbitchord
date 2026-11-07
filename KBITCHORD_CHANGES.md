@@ -169,7 +169,10 @@ change can be dropped from KBitChord after merging X.
   and never be cut unless they ask.
 - **What:** two settings under Direct Source Stream (Settings → Audio quality, phone only): "Start on YouTube if the
   addon is slow" (off by default; first released in v1.9.1+k.2 as "Don't wait for the addon") and "Wait for the addon",
-  0–10 s, 3 s by default.
+  0–10 s, 4 s by default (3 s in v1.9.1+k.3 and +k.4). Against Nebula an answer took 2.6–3.7 s, so 3 s sent half the
+  tracks measured to YouTube. Skipping the pre-play size check instead was tried and dropped: the answer came ~0.8 s
+  sooner but the first note did not, because that check is also the first request to the file's server and the player
+  then paid it.
   - While the track is only *next* inside the window, the addon is waited on as before (up to 15 s, unheard). Once it has
     to start (a tap, a skip, or a transition that came first), YouTube's URL is resolved beside the lookup and the addon
     gets the "Wait for the addon" time to answer; after it, YouTube plays. 0 s starts on whichever answers first, which is

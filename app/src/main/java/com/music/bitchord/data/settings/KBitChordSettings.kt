@@ -16,7 +16,13 @@ object KBitChordSettings {
 
     const val MIN_ADDON_HEAD_START_SEC = 0
     const val MAX_ADDON_HEAD_START_SEC = 10
-    const val DEFAULT_ADDON_HEAD_START_SEC = 3
+
+    /**
+     * Measured against Nebula on 2026-11-07: an addon answer took 2.6–3.7 s, the
+     * last of it a size check of the file that also opens its server, so 3 s let
+     * half of them fall to YouTube and 4 s let all of them play from the addon.
+     */
+    const val DEFAULT_ADDON_HEAD_START_SEC = 4
 
     private lateinit var prefs: SharedPreferences
 
