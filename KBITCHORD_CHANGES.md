@@ -28,25 +28,30 @@ change can be dropped from KBitChord after merging X.
 
 - **Why:** KBitChord must be recognisable next to the official BitChord on the same phone or TV.
 - **What:**
-  - K launcher icon, adaptive: the K on navy, with the K's alpha as the monochrome (themed icon) layer. Also the round icon
-    and the "Default" choice in Settings → App icon.
-  - K TV banner.
+  - Launcher icon, adaptive: upstream's white waves (`@drawable/ic_launcher_foreground`, also the monochrome layer) on a
+    cyan-to-violet diagonal gradient (`#22D3EE` → `#C026D3`) instead of upstream's red. Also the round icon and the
+    "Default" choice in Settings → App icon. Until 2026-11-12 it was a K on navy.
+  - TV banner: the same waves on the same gradient.
   - App name "KBitChord" in every locale; "KBitChord TV" for the TV app; the dev flavors show "KBitChord Dev" and
     "KBitChord TV Dev".
   - Not branded: the alternative launcher icons in Settings → App icon (glass, neon, monochrome), the in-app BitChord mark
     (`ic_logo`, TV home header, Replay cards), the notification icon, and "BitChord" in UI text. They stay upstream's.
 - **Files:** `app/src/{prod,dev}/res/**` and `tv/src/{prod,dev}/res/**` (`mipmap-anydpi/ic_launcher*.xml`,
-  `drawable-nodpi/kbitchord_launcher_foreground.png`, `values/kbitchord_launcher.xml`, `values*/strings_kbitchord.xml`,
-  TV `drawable*/tv_banner.png`), `kbitchord-branding/**` (source artwork and generator script). Upstream files edited, one
+  `drawable/kbitchord_launcher_background.xml`, `values*/strings_kbitchord.xml`, TV `drawable*/tv_banner.png`),
+  `kbitchord-branding/make_branding.py` (generator script). Upstream files edited, one
   line each, where upstream sets the name outside the resources: the application label in `app/src/dev/AndroidManifest.xml`
   and `tv/src/dev/AndroidManifest.xml`, and the `resValue("string", "app_name", …)` lines in `app/build.gradle.kts` (dev)
   and `tv/build.gradle.kts` (dev and prod). A flavor's `resValue` outranks that flavor's `res` folder, so the overlay alone
   would leave upstream's name in the default locale.
-- **Commits:** `e7bae167`, `18416bf3`.
-- **Remove:** revert both commits; the upstream resources in `app/src/main/res` and `tv/src/main/res` take over.
+- **Commits:** `e7bae167`, `18416bf3`, and "kbitchord: launcher icon and TV banner are upstream's waves on violet (K-01)".
+- **Remove:** revert the three commits, newest first; the upstream resources in `app/src/main/res` and `tv/src/main/res`
+  take over.
 - **Upstream status:** KBitChord only.
 - **Watch:** a new upstream locale with `app_name` needs the script rerun. An overlay only replaces an upstream resource
-  with the same name and qualifiers: if upstream moves or renames the launcher icon or TV banner, update the script.
+  with the same name and qualifiers: if upstream moves or renames the launcher icon or TV banner, update the script. The
+  icon uses upstream's foreground directly, so a new upstream mark shows in KBitChord's icon by itself; the TV banner is
+  a PNG drawn from that path, so it needs the script rerun. Themed icons (Android 13+) show only the monochrome layer,
+  which is upstream's, so with themed icons on KBitChord and BitChord look the same apart from the name.
 
 ## K-02 Application IDs and updater source
 

@@ -110,15 +110,16 @@ gh workflow run kbitchord-sync-release.yml -R kernexshadow/kbitchord   # publish
 
 ## Branding assets
 
-`kbitchord-branding/` holds the K artwork (`source/k-mark.png`, the same as knuvio's) and the script that generates every
-KBitChord image and name (Python 3 with Pillow, NumPy, SciPy):
+`kbitchord-branding/make_branding.py` generates every KBitChord image and name (Python 3 with Pillow and NumPy):
 
 ```bash
-python kbitchord-branding/make_branding.py kbitchord-branding/source/k-mark.png <preview-dir>
+python kbitchord-branding/make_branding.py <preview-dir>
 ```
 
-It writes the adaptive launcher icon (K on navy, the K's alpha as the monochrome layer), the TV banner and `app_name` in
-every locale to the four overlay folders, and preview images to `<preview-dir>`; check them before committing.
+It writes the adaptive launcher icon (upstream's white waves, `@drawable/ic_launcher_foreground`, on a cyan-to-violet
+gradient; the colours are `GRADIENT_START`/`GRADIENT_END` in the script), the TV banner drawn from the same path, and
+`app_name` in every locale to the four overlay folders, and preview images to `<preview-dir>`; check them before
+committing.
 
 ## Local builds
 
