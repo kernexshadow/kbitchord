@@ -18,6 +18,7 @@ are the ones to watch:
 | `data/sources/addon/AddonClient.kt`, `data/sources/AddonSource.kt`, `BitChordApplication.kt` | [K-11](#k-11-addon-manifest-off-the-critical-path) |
 | `playback/AudioCache.kt` (key factory, `dropForeignEntries`, new `kb*` functions), `playback/PlaybackService.kt` (the offer calls) | [K-13](#k-13-the-offered-lossless-copy-for-the-next-play) |
 | `playback/DynamicLruCacheEvictor.kt`, `playback/AudioCache.kt` (evictor wiring, `kbClearOutsidePlaylists`), `ui/screens/SettingsSheet.kt` (Storage rows), `BitChordApplication.kt` | [K-14](#k-14-playlist-songs-stay-in-the-cache-longer) |
+| `data/sources/addon/AddonClient.kt` (`USER_AGENT`), `data/sources/addon/SourceFormats.kt` (`fetch`) | [K-15](#k-15-addon-requests-identify-as-kbit) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -281,3 +282,17 @@ change can be dropped from KBitChord after merging X.
 - **Remove:** revert the commit.
 - **Upstream status:** KBitChord only.
 - **Watch:** upstream changes to `DynamicLruCacheEvictor.evictCache` or `AudioCache.clear`.
+
+## K-15 Addon requests identify as KBit
+
+- **Why:** requests to addons carried the official app's User-Agent, `BitChord/v<version>`. KBitChord is a separate
+  build and now names itself, so an addon can tell the two apart.
+- **What:** the User-Agent of addon requests is `KBit/v<versionName>` (e.g. `KBit/v1.9.1+k.9`): the client's search,
+  stream, status and manifest calls, and the fetch that identifies an addon link when one is added. Other User-Agents
+  (image loading, lyrics translation) are unchanged.
+- **Files:** upstream files edited, each marked `KBitChord (K-15)`: `data/sources/addon/AddonClient.kt` (`USER_AGENT`),
+  `data/sources/addon/SourceFormats.kt` (`fetch`).
+- **Tested:** not on a device. No test reads either string.
+- **Remove:** revert the commit.
+- **Upstream status:** KBitChord only.
+- **Watch:** upstream changes to either line, or a new addon request that sets its own User-Agent.

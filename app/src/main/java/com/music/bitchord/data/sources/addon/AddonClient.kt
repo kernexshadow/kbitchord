@@ -615,7 +615,7 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
         private const val BACKOFF_BASE_MS = 500L
         private const val BACKOFF_CAP_MS = 8_000L
 
-        private val USER_AGENT = "BitChord/v${com.music.bitchord.BuildConfig.VERSION_NAME}"
+        private val USER_AGENT = "KBit/v${com.music.bitchord.BuildConfig.VERSION_NAME}" // KBitChord (K-15)
 
         /**
          * What [probeSearch] asks for. Deliberately an ordinary word rather
