@@ -19,6 +19,7 @@ are the ones to watch:
 | `playback/AudioCache.kt` (key factory, `dropForeignEntries`, new `kb*` functions), `playback/PlaybackService.kt` (the offer calls) | [K-13](#k-13-the-offered-lossless-copy-for-the-next-play) |
 | `playback/DynamicLruCacheEvictor.kt`, `playback/AudioCache.kt` (evictor wiring, `kbClearOutsidePlaylists`), `ui/screens/SettingsSheet.kt` (Storage rows), `BitChordApplication.kt` | [K-14](#k-14-playlist-songs-stay-in-the-cache-longer) |
 | `data/sources/addon/AddonClient.kt` (`USER_AGENT`), `data/sources/addon/SourceFormats.kt` (`fetch`) | [K-15](#k-15-addon-requests-identify-as-kbit) |
+| `playback/AudioCache.kt` (`settleDirectEntry`'s lookup, `kbLookupForCachedCopy`) | [K-16](#k-16-a-saved-youtube-copy-waits-only-the-head-start) |
 
 Upstream status: **KBitChord only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the
 change can be dropped from KBitChord after merging X.
@@ -296,3 +297,23 @@ change can be dropped from KBitChord after merging X.
 - **Remove:** revert the commit.
 - **Upstream status:** KBitChord only.
 - **Watch:** upstream changes to either line, or a new addon request that sets its own User-Agent.
+
+## K-16 A saved YouTube copy waits only the head start
+
+- **Why:** with Direct Source Stream on, a track whose YouTube copy is already in the song cache asks the addon for a
+  better copy before reading the one on disk (`AudioCache.settleDirectEntry`, upstream). That wait ran up to
+  `DirectSourceGate.LOOKUP_TIMEOUT_MS`, 15 s, ignoring K-10's "Wait for the addon": a song already saved could take
+  longer to start than one streamed afresh.
+- **What:** with "Start on YouTube if the addon is slow" on, that lookup is held to "Wait for the addon"
+  (`addonHeadStartSec`, 4 s by default). Past it the copy on disk plays. The lookup runs on and is handed to the
+  upgrade as before, so a late answer is offered during the track (K-10). With the setting off, upstream's wait is kept.
+- **Files:** upstream file edited, marked `KBitChord (K-16)`: `playback/AudioCache.kt` (the lookup in
+  `settleDirectEntry`, new `kbLookupForCachedCopy`).
+- **Tested:** on the phone emulator, a track whose YouTube copy was cached, replayed after an app restart. Before,
+  about 3 s from play to the first frame: ~1.7 s waiting for the addon, then ~0.9 s resolving YouTube. With
+  "Wait for the addon" at 0 s, the disk copy started after ~1.2 s, the YouTube resolve alone. The lookup ran on, found
+  the addon's FLAC 3 s later, and offered it (K-10) and kept it for the next play (K-13). Unit tests `KBitChord*`,
+  `AudioCache*`, `DirectSource*` pass. Not tested: an addon slower than 4 s at the default setting.
+- **Remove:** revert the commit.
+- **Upstream status:** KBitChord only; builds on K-10 (upstream PR #1592).
+- **Watch:** upstream changes to `settleDirectEntry` or `DirectSourceGate.lookup`.

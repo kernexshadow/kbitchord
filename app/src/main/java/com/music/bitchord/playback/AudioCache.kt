@@ -1423,7 +1423,7 @@ object AudioCache {
                 // The same hold the resolver applies, so a track prepared early
                 // for a gapless start is not searched for before its window.
                 DirectSourceGate.awaitOpen(videoId)
-                val addon = runCatching { DirectSourceGate.lookup(videoId, SourceResolver.targetIn(uri)) }
+                val addon = runCatching { kbLookupForCachedCopy(videoId, SourceResolver.targetIn(uri)) } // KBitChord (K-16)
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
                     .getOrNull()
                 // Read-ahead may have settled it while this waited.
@@ -1454,6 +1454,36 @@ object AudioCache {
             // A released media period interrupts its loader; that is a skip.
             throw java.io.InterruptedIOException("direct lookup for $videoId interrupted")
         }
+    }
+
+    /**
+     * KBitChord (K-16): [settleDirectEntry]'s addon lookup, held to "Wait for
+     * the addon" when "Start on YouTube if the addon is slow" is on.
+     *
+     * The track's YouTube copy is on disk and ready, yet the open waited for the
+     * addon's answer up to [DirectSourceGate.LOOKUP_TIMEOUT_MS], 15 s, before
+     * reading it: a song already saved could take longer to start than one
+     * streamed afresh, where K-10 starts YouTube after the head start. Here the
+     * head start applies too. The lookup itself runs on, as it does there, and
+     * [DirectSourceGate.startedOnYouTube] hands it to the upgrade, so an answer
+     * after the wait is offered during the track instead of being lost.
+     */
+    private suspend fun kbLookupForCachedCopy(videoId: String, target: TrackMatcher.Target): SourceStream? {
+        if (!com.music.bitchord.data.settings.KBitChordSettings.directSourceNoWait.value) {
+            return DirectSourceGate.lookup(videoId, target)
+        }
+        val headStartMs = com.music.bitchord.data.settings.KBitChordSettings.addonHeadStartSec.value * 1_000L
+        val started = android.os.SystemClock.elapsedRealtime()
+        val answer = kotlinx.coroutines.withTimeoutOrNull(headStartMs) { DirectSourceGate.lookup(videoId, target) }
+        if (answer == null && android.os.SystemClock.elapsedRealtime() - started >= headStartMs) {
+            TrackLog.d(
+                TAG,
+                "the addon didn't answer for the cached '${target.title}' within the ${headStartMs / 1000}s head start; " +
+                    "playing the copy on disk and still looking",
+                about = videoId,
+            )
+        }
+        return answer
     }
 
     /** Clears [key]'s YouTube bytes so an addon's file can fill it from the top. */
